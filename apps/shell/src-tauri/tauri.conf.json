@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AuthLink",
+  "version": "0.1.0",
+  "identifier": "ai.aiia.authlink",
+  "build": {
+    "beforeDevCommand": "npm run dev -w @authlink/web",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build -w @authlink/web",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "AuthLink — AIIA Suite",
+        "width": 1280,
+        "height": 900,
+        "minWidth": 390,
+        "minHeight": 700
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8787; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}
