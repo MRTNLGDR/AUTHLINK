@@ -1,0 +1,21 @@
+opportunity,decision,priority,implementation
+Unified identity + social + security + app launcher,"Make AuthLink the control plane, not a duplicate owner of all domain data",High,AuthLink + OpenFGA + SuiteSwitcher
+Purpose-bound consent across apps,"Every access carries purpose, scope, expiry, audience and audit",High,authlink-consent/authlink-purpose
+Portable user-owned social graph,AuthLink owns internal graph; external networks are adapters/import-export only,High,social-graph/social-connectors
+Field-level profile visibility,Per-field policies; no all-or-nothing profile,High,OpenFGA + purpose grants
+Security posture as first-class social identity,"Verified badge is derived from assurance, never reveals sensitive proof",High,guardian-risk/profile projection
+Password/passkey manager integrated with social identity,OS credential-provider adapters + encrypted Vault,High,credential-vault/autofill
+Private media protection,Import/copy selected assets into encrypted Vault; do not claim impossible OS-wide access,High,media-vault
+Explainable AI Guardian,"Deterministic policy first; ML assists, never silently blocks critical rights alone",High,guardian-risk
+Offline/nearby encrypted communication,"Local discovery/link + E2EE envelopes + store/forward, permissions unchanged",High,mesh-nearby/OpenMLS
+Social + business inbox with hard context separation,"One UI, separate organization scopes and retention",High,authlink-chat/chat-business
+Knowledge graph with authority + provenance,"Source, license, author, evidence, version, jurisdiction, prerequisite graph",High,knowledge-graph/authority
+One-minute microlearning,"DAG of atomic steps, prerequisite routing and spaced review",Medium,microlearning-engine/FSRS
+Knowledge marketplace,Sell/license a path or expert session while keeping provenance and refund/escrow hooks,Medium,knowledge-market + Lionz Bank later
+Family/parental controls,"OS-native controls with child best-interest/privacy, not surveillance",High,family-controls
+Health/life graph,User-controlled HealthKit/Health Connect/RNDS refs + routines/workouts/meds/cycles,High,health-adapter/life-routine
+Finance health in same identity hub,Open Finance consented projections; bank remains separate domain owner,High,finance-openfinance-adapter/Lionz Bank
+Gov/CPF/official identity connectors,Use authorized Login Único/Serpro/official APIs only; no scraping,High,government-identity-adapter
+Tamper-evident transparency,Append-only journal + Merkle/hash anchoring; never raw PII/biometrics on-chain,High,transparency-audit/Lionz Chain optional
+Developer super-surface from existing RAR,Keep providers/MCP/modules/sequencer/notes/workbench as Developer mode,Medium,developer-* modules
+Data portability and deletion,"Export, consent withdrawal, retention policies and deletion workflows",High,Vault + consent + audit
