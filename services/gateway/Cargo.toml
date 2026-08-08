@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 authlink-contracts = { path = "../../crates/authlink-contracts" }
+authlink-guardian = { path = "../../crates/authlink-guardian" }
 axum = "0.8.9"
 tokio = { version = "1", features = ["full"] }
 serde.workspace = true
