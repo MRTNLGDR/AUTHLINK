@@ -1,0 +1,73 @@
+module,layer,function,owner,source
+shell-app,UI,Casca responsiva única,AIIA Shared,canonical shared module
+nav-router,UI,Rotas/deep-links/history,AIIA Shared,canonical shared module
+boot-universe,UI/GPU,Abertura universal,AIIA Shared,canonical shared module
+orb-globe,UI/GPU,Globo/grafo visual compartilhado,AIIA Shared,canonical shared module
+suite-switcher,UI,Launcher de apps,AIIA Shared,canonical shared module
+command-bus,domain,"Comandos, idempotência, journal/outbox",AIIA Shared,canonical shared module
+event-envelope,contract,CloudEvents/eventos versionados,AIIA Shared,canonical shared module
+copilot,UI/service,Copiloto contextual com grants,AIIA Shared,canonical shared module
+card-list,UI,Cards densos,AIIA Shared,canonical shared module
+kpi-grid,UI,KPIs responsivos,AIIA Shared,canonical shared module
+dense-table,UI,Tabela virtualizada,AIIA Shared,canonical shared module
+force-graph,UI,Grafo de relações/linhagem,AIIA Shared,canonical shared module
+asset-picker,UI,Assets via Vault,AIIA Shared,canonical shared module
+sync-center,UI/service,Offline/outbox/conflitos,AIIA Shared,canonical shared module
+audit-viewer,UI/service,Auditoria/journal,AIIA Shared,canonical shared module
+node-canvas,UI,Canvas nodal compartilhado,AIIA Shared,canonical shared module
+form-slider,UI,Parâmetros/simulações,AIIA Shared,canonical shared module
+doc-tree,UI,Documentos/versões,AIIA Shared,canonical shared module
+authlink-idp-adapter,identity,Adapter OIDC/OAuth/WebAuthn,AuthLink or adapter owner,AuthLink V3 extension
+authlink-session,identity,"Sessão, audiência, app launch",AuthLink or adapter owner,AuthLink V3 extension
+authlink-token-exchange,identity,Token exchange por app/audiência,AuthLink or adapter owner,AuthLink V3 extension
+authlink-passkey,identity,Passkeys/WebAuthn,AuthLink or adapter owner,AuthLink V3 extension
+authlink-mfa,identity,TOTP/security keys/step-up,AuthLink or adapter owner,AuthLink V3 extension
+authlink-device-trust,security,Dispositivo confiável/attestation,AuthLink or adapter owner,AuthLink V3 extension
+authlink-consent,privacy,Consentimentos granulares,AuthLink or adapter owner,AuthLink V3 extension
+authlink-purpose,privacy,Purpose grants e expiração,AuthLink or adapter owner,AuthLink V3 extension
+authlink-recovery,identity,Recuperação/códigos/contatos,AuthLink or adapter owner,AuthLink V3 extension
+authlink-profile,identity,Perfil e visibilidade por campo,AuthLink or adapter owner,AuthLink V3 extension
+guardian-risk,security,Risk engine explicável,AuthLink or adapter owner,AuthLink V3 extension
+guardian-integrity,security,Integridade app/device,AuthLink or adapter owner,AuthLink V3 extension
+credential-vault,security,Senhas/OTPs/credenciais,AuthLink or adapter owner,AuthLink V3 extension
+credential-autofill,security,Credential provider/autofill,AuthLink or adapter owner,AuthLink V3 extension
+media-vault,vault,Fotos/vídeos privados,AuthLink or adapter owner,AuthLink V3 extension
+file-vault,vault,Arquivos/documentos privados,AuthLink or adapter owner,AuthLink V3 extension
+privacy-permissions,privacy,Permissões e privacy posture,AuthLink or adapter owner,AuthLink V3 extension
+network-shield,security,VPN/DNS shield opcional,AuthLink or adapter owner,AuthLink V3 extension
+threat-intel-local,security,Detecção local de risco/phishing,AuthLink or adapter owner,AuthLink V3 extension
+panic-response,security,Resposta emergencial,AuthLink or adapter owner,AuthLink V3 extension
+backup-recovery,security,Backup/restore/recovery,AuthLink or adapter owner,AuthLink V3 extension
+transparency-audit,audit,Trilha append-only + proofs,AuthLink or adapter owner,AuthLink V3 extension
+social-graph,social,Conexões/seguidores/relacionamentos,AuthLink or adapter owner,AuthLink V3 extension
+social-feed,social,Feed/ranking/controles,AuthLink or adapter owner,AuthLink V3 extension
+social-post,social,Posts/mídia/comentários,AuthLink or adapter owner,AuthLink V3 extension
+social-discovery,social,Descoberta pessoas/projetos,AuthLink or adapter owner,AuthLink V3 extension
+social-match,social,Compatibilidade estilo swipe,AuthLink or adapter owner,AuthLink V3 extension
+social-community,social,Grupos/comunidades/clãs,AuthLink or adapter owner,AuthLink V3 extension
+opportunities-market,market,Vagas/projetos/serviços,AuthLink or adapter owner,AuthLink V3 extension
+social-connectors,integration,Import/export por APIs permitidas,AuthLink or adapter owner,AuthLink V3 extension
+authlink-chat,comms,Chat social,AuthLink or adapter owner,AuthLink V3 extension
+chat-business,comms,Chat empresarial,AuthLink or adapter owner,AuthLink V3 extension
+openmls-encryption,comms,E2EE MLS,AuthLink or adapter owner,AuthLink V3 extension
+call-meet,comms,Voz/vídeo/reuniões,AuthLink or adapter owner,AuthLink V3 extension
+media-attachments,comms,Arquivos/mídia no chat,AuthLink or adapter owner,AuthLink V3 extension
+mesh-nearby,comms,Comunicação por proximidade/offline,AuthLink or adapter owner,AuthLink V3 extension
+notification-router,comms,Push/local/priority routing,AuthLink or adapter owner,AuthLink V3 extension
+authlink-knowledge,knowledge,Knowledge service,AuthLink or adapter owner,AuthLink V3 extension
+knowledge-graph,knowledge,Grafo/proveniência/pré-requisitos,AuthLink or adapter owner,AuthLink V3 extension
+knowledge-search,knowledge,BM25+vetor+grafo,AuthLink or adapter owner,AuthLink V3 extension
+microlearning-engine,knowledge,Passos 30–90s/DAG,AuthLink or adapter owner,AuthLink V3 extension
+knowledge-authority,knowledge,Autoridade/evidência/licença,AuthLink or adapter owner,AuthLink V3 extension
+knowledge-market,knowledge,Venda/compra/licenças,AuthLink or adapter owner,AuthLink V3 extension
+knowledge-editor,knowledge,Editor/collab/versionamento,AuthLink or adapter owner,AuthLink V3 extension
+family-controls,family,Membros/controle parental,AuthLink or adapter owner,AuthLink V3 extension
+health-adapter,health,HealthKit/Health Connect/RNDS refs,AuthLink or adapter owner,AuthLink V3 extension
+life-routine-adapter,life,Rotinas/treinos/meds/ciclos/listas,AuthLink or adapter owner,AuthLink V3 extension
+finance-openfinance-adapter,finance,Open Finance/finance health refs,AuthLink or adapter owner,AuthLink V3 extension
+government-identity-adapter,gov,gov.br/CPF/confiabilidades,AuthLink or adapter owner,AuthLink V3 extension
+calendar-tasks-adapter,life,Agenda/tarefas/meet,AuthLink or adapter owner,AuthLink V3 extension
+organization-business,business,Org/papéis/workspaces/aprovações,AuthLink or adapter owner,AuthLink V3 extension
+developer-integrations,dev,Git/Supabase/Vercel/Netlify/deploy,AuthLink or adapter owner,AuthLink V3 extension
+provider-mcp,dev,Model providers/MCP/local/cloud,AuthLink or adapter owner,AuthLink V3 extension
+workbench-bridge,dev,Sequencer/notes/editor/preview,AuthLink or adapter owner,AuthLink V3 extension
