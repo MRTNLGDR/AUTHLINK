@@ -1,0 +1,47 @@
+id,workflow,target_controls,type
+1,AuthLink contextual drawer,6,sheet/dialog
+2,Suite switcher,6,sheet/dialog
+3,Command palette,6,sheet/dialog
+4,Notification quick drawer,6,sheet/dialog
+5,Feed filter sheet,6,sheet/dialog
+6,Share sheet,6,sheet/dialog
+7,Post action menu,6,sheet/dialog
+8,Report/block user,6,sheet/dialog
+9,Connection request,6,sheet/dialog
+10,Composer attachment,6,sheet/dialog
+11,New chat recipient,6,sheet/dialog
+12,Chat attachment picker,6,sheet/dialog
+13,Message action sheet,6,sheet/dialog
+14,Call controls,6,sheet/dialog
+15,Meeting invite,6,sheet/dialog
+16,Credential detail,6,sheet/dialog
+17,Add credential,6,sheet/dialog
+18,Password generator,6,sheet/dialog
+19,Password import,6,sheet/dialog
+20,Secure album action,6,sheet/dialog
+21,Sensitive media review,6,sheet/dialog
+22,Account connector OAuth,6,sheet/dialog
+23,Account security review,6,sheet/dialog
+24,Permission detail,6,sheet/dialog
+25,Alert remediation,6,sheet/dialog
+26,Backup settings,6,sheet/dialog
+27,Restore checkpoint,6,sheet/dialog
+28,Panic confirmation,6,sheet/dialog
+29,Trusted contact picker,6,sheet/dialog
+30,Device/session action,6,sheet/dialog
+31,Step-up authentication,6,sheet/dialog
+32,Consent detail,6,sheet/dialog
+33,Audit event detail,6,sheet/dialog
+34,Knowledge prerequisites,6,sheet/dialog
+35,Micro-step checklist,6,sheet/dialog
+36,Publish knowledge metadata,6,sheet/dialog
+37,Authority evidence,6,sheet/dialog
+38,Knowledge market checkout,6,sheet/dialog
+39,Family member invite,6,sheet/dialog
+40,Child app/category picker,6,sheet/dialog
+41,Health permission sheet,6,sheet/dialog
+42,Medication schedule,6,sheet/dialog
+43,Cycle privacy,6,sheet/dialog
+44,Routine/list add,6,sheet/dialog
+45,Open Finance consent,6,sheet/dialog
+46,Developer provider/MCP setup,6,sheet/dialog
