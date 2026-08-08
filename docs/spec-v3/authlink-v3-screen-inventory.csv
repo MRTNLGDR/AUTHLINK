@@ -1,0 +1,109 @@
+id,section,route,screen,target_controls,surface,mobile_nav
+1,AUTH_ONBOARDING,/boot,Boot Universe,4,route,Feed|Chat|Apps|Match|Perfil
+2,AUTH_ONBOARDING,/auth/welcome,Boas-vindas / proposta de identidade soberana,5,route,Feed|Chat|Apps|Match|Perfil
+3,AUTH_ONBOARDING,/auth/login,Login universal,7,route,Feed|Chat|Apps|Match|Perfil
+4,AUTH_ONBOARDING,/auth/register,Criar conta,8,route,Feed|Chat|Apps|Match|Perfil
+5,AUTH_ONBOARDING,/auth/device-check,Integridade e confiança do dispositivo,7,route,Feed|Chat|Apps|Match|Perfil
+6,AUTH_ONBOARDING,/auth/enroll/face,Captura facial / pontos do rosto,8,route,Feed|Chat|Apps|Match|Perfil
+7,AUTH_ONBOARDING,/auth/enroll/liveness,Prova de vida,8,route,Feed|Chat|Apps|Match|Perfil
+8,AUTH_ONBOARDING,/auth/enroll/document,Documento oficial / OCR,9,route,Feed|Chat|Apps|Match|Perfil
+9,AUTH_ONBOARDING,/auth/enroll/confirm,Correspondência e confirmação de identidade,10,route,Feed|Chat|Apps|Match|Perfil
+10,AUTH_ONBOARDING,/auth/enroll/consent,Consentimentos de biometria e finalidade,10,route,Feed|Chat|Apps|Match|Perfil
+11,AUTH_ONBOARDING,/auth/enroll/passkey,Criar/vincular passkey,8,route,Feed|Chat|Apps|Match|Perfil
+12,AUTH_ONBOARDING,/auth/enroll/2fa,Configurar segundo fator,8,route,Feed|Chat|Apps|Match|Perfil
+13,AUTH_ONBOARDING,/auth/enroll/security-key,Chave física / autenticador externo,7,route,Feed|Chat|Apps|Match|Perfil
+14,AUTH_ONBOARDING,/auth/enroll/recovery,Códigos e contatos de recuperação,6,route,Feed|Chat|Apps|Match|Perfil
+15,AUTH_ONBOARDING,/auth/enroll/vault,Criar vault seguro,8,route,Feed|Chat|Apps|Match|Perfil
+16,AUTH_ONBOARDING,/auth/enroll/identity,Gerar identidade soberana,7,route,Feed|Chat|Apps|Match|Perfil
+17,AUTH_ONBOARDING,/auth/enroll/avatar,Preparar referência para avatar PEZON,6,route,Feed|Chat|Apps|Match|Perfil
+18,AUTH_ONBOARDING,/auth/enroll/audit,Registro de auditoria e transparência,5,route,Feed|Chat|Apps|Match|Perfil
+19,AUTH_ONBOARDING,/auth/enroll/summary,Resumo de proteção,5,route,Feed|Chat|Apps|Match|Perfil
+20,AUTH_ONBOARDING,/auth/enroll/done,Acesso liberado,4,route,Feed|Chat|Apps|Match|Perfil
+21,SOCIAL_DISCOVERY,/feed,Feed principal,12,route,Feed|Chat|Apps|Match|Perfil
+22,SOCIAL_DISCOVERY,/feed/filters,Filtros e preferências do feed,8,route,Feed|Chat|Apps|Match|Perfil
+23,SOCIAL_DISCOVERY,/feed/post/:id,Post / comentários / ações,15,route,Feed|Chat|Apps|Match|Perfil
+24,SOCIAL_DISCOVERY,/feed/compose,Criar publicação,14,route,Feed|Chat|Apps|Match|Perfil
+25,SOCIAL_DISCOVERY,/profile/:id,Perfil social/verificado,14,route,Feed|Chat|Apps|Match|Perfil
+26,SOCIAL_DISCOVERY,/profile/edit,Editar perfil e visibilidade por campo,16,route,Feed|Chat|Apps|Match|Perfil
+27,SOCIAL_DISCOVERY,/discover,Descobrir,12,route,Feed|Chat|Apps|Match|Perfil
+28,SOCIAL_DISCOVERY,/match/:id,Compatibilidade / match detalhado,13,route,Feed|Chat|Apps|Match|Perfil
+29,SOCIAL_DISCOVERY,/discover/people,Descobrir pessoas,10,route,Feed|Chat|Apps|Match|Perfil
+30,SOCIAL_DISCOVERY,/discover/projects,Descobrir projetos,10,route,Feed|Chat|Apps|Match|Perfil
+31,SOCIAL_DISCOVERY,/market/opportunities,Mercado / oportunidades,15,route,Feed|Chat|Apps|Match|Perfil
+32,SOCIAL_DISCOVERY,/market/opportunities/:id,Detalhe da oportunidade,12,route,Feed|Chat|Apps|Match|Perfil
+33,SOCIAL_DISCOVERY,/communities,Comunidades / clãs,10,route,Feed|Chat|Apps|Match|Perfil
+34,SOCIAL_DISCOVERY,/communities/:id,Comunidade / grupo,11,route,Feed|Chat|Apps|Match|Perfil
+35,SOCIAL_DISCOVERY,/courses,Cursos e trilhas,10,route,Feed|Chat|Apps|Match|Perfil
+36,SOCIAL_DISCOVERY,/notifications,Notificações e atividade,9,route,Feed|Chat|Apps|Match|Perfil
+37,CHAT_BUSINESS_CALLS,/chat,Inbox social,11,route,Feed|Chat|Apps|Match|Perfil
+38,CHAT_BUSINESS_CALLS,/chat/:id,Conversa 1:1 segura,16,route,Feed|Chat|Apps|Match|Perfil
+39,CHAT_BUSINESS_CALLS,/chat/group/:id,Grupo seguro,17,route,Feed|Chat|Apps|Match|Perfil
+40,CHAT_BUSINESS_CALLS,/business/inbox,Inbox empresarial,12,route,Feed|Chat|Apps|Match|Perfil
+41,CHAT_BUSINESS_CALLS,/business/chat/:id,Conversa empresarial,16,route,Feed|Chat|Apps|Match|Perfil
+42,CHAT_BUSINESS_CALLS,/chat/new,Nova conversa,10,route,Feed|Chat|Apps|Match|Perfil
+43,CHAT_BUSINESS_CALLS,/calls,Chamadas / histórico,9,route,Feed|Chat|Apps|Match|Perfil
+44,CHAT_BUSINESS_CALLS,/call/voice/:id,Chamada de voz,11,route,Feed|Chat|Apps|Match|Perfil
+45,CHAT_BUSINESS_CALLS,/meet/:id,Reunião / videoconferência,15,route,Feed|Chat|Apps|Match|Perfil
+46,CHAT_BUSINESS_CALLS,/meet/schedule,Agendar reunião,13,route,Feed|Chat|Apps|Match|Perfil
+47,CHAT_BUSINESS_CALLS,/chat/media,Mídia e arquivos compartilhados,12,route,Feed|Chat|Apps|Match|Perfil
+48,CHAT_BUSINESS_CALLS,/business/directory,Diretório empresarial,10,route,Feed|Chat|Apps|Match|Perfil
+49,SECURITY_VAULT,/security,Proteção total / Guardian,15,route,Feed|Chat|Apps|Match|Perfil
+50,SECURITY_VAULT,/security/passwords,Vault de senhas,14,route,Feed|Chat|Apps|Match|Perfil
+51,SECURITY_VAULT,/security/passwords/:id,Detalhe da credencial,12,route,Feed|Chat|Apps|Match|Perfil
+52,SECURITY_VAULT,/security/autofill,Autofill / provedor de credenciais,10,route,Feed|Chat|Apps|Match|Perfil
+53,SECURITY_VAULT,/security/photos,Cofre de fotos,13,route,Feed|Chat|Apps|Match|Perfil
+54,SECURITY_VAULT,/security/photos/album/:id,Álbum privado,12,route,Feed|Chat|Apps|Match|Perfil
+55,SECURITY_VAULT,/security/files,Vault de arquivos/documentos,11,route,Feed|Chat|Apps|Match|Perfil
+56,SECURITY_VAULT,/security/accounts,Contas & redes,12,route,Feed|Chat|Apps|Match|Perfil
+57,SECURITY_VAULT,/security/accounts/:id,Saúde de uma conta externa,14,route,Feed|Chat|Apps|Match|Perfil
+58,SECURITY_VAULT,/security/privacy,Permissões & privacidade,16,route,Feed|Chat|Apps|Match|Perfil
+59,SECURITY_VAULT,/security/privacy/app/:id,Permissões por app,14,route,Feed|Chat|Apps|Match|Perfil
+60,SECURITY_VAULT,/security/alerts,Alertas & ameaças,13,route,Feed|Chat|Apps|Match|Perfil
+61,SECURITY_VAULT,/security/alerts/:id,Detalhe e remediação de alerta,15,route,Feed|Chat|Apps|Match|Perfil
+62,SECURITY_VAULT,/security/backup,Backup & recuperação,12,route,Feed|Chat|Apps|Match|Perfil
+63,SECURITY_VAULT,/security/panic,Modo pânico,13,route,Feed|Chat|Apps|Match|Perfil
+64,SECURITY_VAULT,/security/devices,Dispositivos & sessões,14,route,Feed|Chat|Apps|Match|Perfil
+65,SECURITY_VAULT,/security/devices/:id,Detalhe do dispositivo/sessão,12,route,Feed|Chat|Apps|Match|Perfil
+66,SECURITY_VAULT,/security/mfa,Métodos MFA / step-up,9,route,Feed|Chat|Apps|Match|Perfil
+67,SECURITY_VAULT,/security/recovery-contacts,Contatos de recuperação,10,route,Feed|Chat|Apps|Match|Perfil
+68,SECURITY_VAULT,/auth/audit,Auditoria completa,13,route,Feed|Chat|Apps|Match|Perfil
+69,KNOWLEDGE_AUTHORITY,/knowledge,Conhecimento / home,12,route,Feed|Chat|Apps|Match|Perfil
+70,KNOWLEDGE_AUTHORITY,/knowledge/graph,Grafo/globo de conhecimento,14,route,Feed|Chat|Apps|Match|Perfil
+71,KNOWLEDGE_AUTHORITY,/knowledge/search,Busca híbrida,10,route,Feed|Chat|Apps|Match|Perfil
+72,KNOWLEDGE_AUTHORITY,/knowledge/step/:id,Microconhecimento 30–90 s,13,route,Feed|Chat|Apps|Match|Perfil
+73,KNOWLEDGE_AUTHORITY,/knowledge/path/:id,Trilha passo a passo,12,route,Feed|Chat|Apps|Match|Perfil
+74,KNOWLEDGE_AUTHORITY,/knowledge/creator/:id,Autoridade / criador,11,route,Feed|Chat|Apps|Match|Perfil
+75,KNOWLEDGE_AUTHORITY,/knowledge/publish,Publicar conhecimento,15,route,Feed|Chat|Apps|Match|Perfil
+76,KNOWLEDGE_AUTHORITY,/knowledge/editor/:id,Editor estruturado,17,route,Feed|Chat|Apps|Match|Perfil
+77,KNOWLEDGE_AUTHORITY,/knowledge/authority,Score de autoridade e evidências,12,route,Feed|Chat|Apps|Match|Perfil
+78,KNOWLEDGE_AUTHORITY,/knowledge/market,Mercado de conhecimento,13,route,Feed|Chat|Apps|Match|Perfil
+79,KNOWLEDGE_AUTHORITY,/knowledge/library,Biblioteca pessoal,11,route,Feed|Chat|Apps|Match|Perfil
+80,KNOWLEDGE_AUTHORITY,/knowledge/progress,Progresso / revisão espaçada,10,route,Feed|Chat|Apps|Match|Perfil
+81,FAMILY_LIFE_HEALTH,/family,Família / membros,12,route,Feed|Chat|Apps|Match|Perfil
+82,FAMILY_LIFE_HEALTH,/family/member/:id,Membro / perfil supervisionado,14,route,Feed|Chat|Apps|Match|Perfil
+83,FAMILY_LIFE_HEALTH,/family/controls,Controle parental,13,route,Feed|Chat|Apps|Match|Perfil
+84,FAMILY_LIFE_HEALTH,/family/limits,Limites e horários,11,route,Feed|Chat|Apps|Match|Perfil
+85,FAMILY_LIFE_HEALTH,/family/safety,Segurança familiar,10,route,Feed|Chat|Apps|Match|Perfil
+86,FAMILY_LIFE_HEALTH,/health,Saúde e bem-estar,14,route,Feed|Chat|Apps|Match|Perfil
+87,FAMILY_LIFE_HEALTH,/health/workouts,Treinos / personal,12,route,Feed|Chat|Apps|Match|Perfil
+88,FAMILY_LIFE_HEALTH,/health/medications,Medicamentos / rotina,13,route,Feed|Chat|Apps|Match|Perfil
+89,FAMILY_LIFE_HEALTH,/health/cycle,Ciclos hormonais/menstruais,13,route,Feed|Chat|Apps|Match|Perfil
+90,FAMILY_LIFE_HEALTH,/life/routines,Rotinas / hábitos,11,route,Feed|Chat|Apps|Match|Perfil
+91,FAMILY_LIFE_HEALTH,/life/calendar,Agenda / tarefas / encontros,12,route,Feed|Chat|Apps|Match|Perfil
+92,FAMILY_LIFE_HEALTH,/life/lists,Listas / compras / checklists,10,route,Feed|Chat|Apps|Match|Perfil
+93,FINANCE_GOV_APPS_BUSINESS_DEV,/finance,Saúde financeira pessoal,14,route,Feed|Chat|Apps|Match|Perfil
+94,FINANCE_GOV_APPS_BUSINESS_DEV,/finance/open-finance,Open Finance / consentimentos,16,route,Feed|Chat|Apps|Match|Perfil
+95,FINANCE_GOV_APPS_BUSINESS_DEV,/finance/budget,Orçamento / metas / caixa,12,route,Feed|Chat|Apps|Match|Perfil
+96,FINANCE_GOV_APPS_BUSINESS_DEV,/identity/gov,Gov/CPF/identidade e confiabilidades,11,route,Feed|Chat|Apps|Match|Perfil
+97,FINANCE_GOV_APPS_BUSINESS_DEV,/apps,Apps do plano / launcher,13,route,Feed|Chat|Apps|Match|Perfil
+98,FINANCE_GOV_APPS_BUSINESS_DEV,/apps/integrations,Integrações / conectores,15,route,Feed|Chat|Apps|Match|Perfil
+99,FINANCE_GOV_APPS_BUSINESS_DEV,/business,AuthLink Business,12,route,Feed|Chat|Apps|Match|Perfil
+100,FINANCE_GOV_APPS_BUSINESS_DEV,/business/roles,Organizações / papéis / aprovação,10,route,Feed|Chat|Apps|Match|Perfil
+101,FINANCE_GOV_APPS_BUSINESS_DEV,/settings/plan,Plano / cobrança / limites,11,route,Feed|Chat|Apps|Match|Perfil
+102,FINANCE_GOV_APPS_BUSINESS_DEV,/developer,Developer Hub,13,route,Feed|Chat|Apps|Match|Perfil
+103,FINANCE_GOV_APPS_BUSINESS_DEV,/developer/ai,Chat IA / modelos / artifacts,14,route,Feed|Chat|Apps|Match|Perfil
+104,FINANCE_GOV_APPS_BUSINESS_DEV,/developer/providers,Providers cloud/local,15,route,Feed|Chat|Apps|Match|Perfil
+105,FINANCE_GOV_APPS_BUSINESS_DEV,/developer/mcp,MCP Servers / tools,16,route,Feed|Chat|Apps|Match|Perfil
+106,FINANCE_GOV_APPS_BUSINESS_DEV,/developer/sequencer,Sequencer / módulos / pipelines,14,route,Feed|Chat|Apps|Match|Perfil
+107,FINANCE_GOV_APPS_BUSINESS_DEV,/developer/notes,Notes Workspace / conhecimento,12,route,Feed|Chat|Apps|Match|Perfil
+108,FINANCE_GOV_APPS_BUSINESS_DEV,/developer/workbench,Workbench / editor / preview / deploy,18,route,Feed|Chat|Apps|Match|Perfil
