@@ -10,6 +10,7 @@ axum = "0.8.9"
 tokio = { version = "1", features = ["full"] }
 serde.workspace = true
 serde_json.workspace = true
+uuid.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
