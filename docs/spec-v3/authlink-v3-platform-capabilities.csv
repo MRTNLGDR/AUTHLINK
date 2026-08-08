@@ -1,0 +1,17 @@
+platform,capability,real_status,native_api,limit,official_reference
+iOS/iPadOS,Password/passkey/OTP provider,YES,AuthenticationServices Credential Provider Extension,User enables provider; OS UI/entitlements apply,https://developer.apple.com/documentation/authenticationservices/ascredentialproviderviewcontroller
+iOS/iPadOS,Parental controls,YES_WITH_ENTITLEMENT,FamilyControls + ManagedSettings + DeviceActivity,Family Controls entitlement/distribution review; opaque app/site tokens,https://developer.apple.com/documentation/screentimeapidocumentation
+iOS/iPadOS,Nearby without Internet,YES_ON_SUPPORTED_OS/HW,Wi-Fi Aware; BLE as discovery/fallback,No general permission bypass; foreground/background constraints must be tested,https://developer.apple.com/documentation/WiFiAware
+iOS/iPadOS,Health,YES_WITH_PERMISSION,HealthKit,Fine-grained read/share permissions; sensitive data restrictions,https://developer.apple.com/documentation/healthkit/
+iOS/iPadOS,Photos,YES_USER_SCOPED,PhotoKit/PhotosUI,Limited library means only selected assets are visible,https://developer.apple.com/documentation/photosui
+iOS/iPadOS,App integrity,YES,App Attest/DeviceCheck,"Server-side validation; signal, not identity replacement",https://developer.apple.com/documentation/devicecheck
+iOS/iPadOS,Read every other app private file/password,NO,OS sandbox,Not technically available to normal App Store app,https://developer.apple.com/documentation/security
+Android,Password/passkey provider,YES Android 14+ provider role,Credential Manager Provider,System aggregates installed credential providers,https://developer.android.com/identity/sign-in/credential-provider
+Android,Nearby without Internet,YES,Wi-Fi Aware / Wi-Fi Direct,Runtime nearby/location permissions vary by version,https://developer.android.com/develop/connectivity/wifi/wifi-aware
+Android,Managed/parental-grade policy,YES_IF_DPC_ROLE,DevicePolicyManager,Strong controls require device owner/profile owner/system supervision roles,https://developer.android.com/reference/android/app/admin/DevicePolicyManager
+Android,Health + medical records,YES_WITH_PERMISSION,Health Connect + FHIR medical records,Feature availability + explicit permissions,https://developer.android.com/health-and-fitness/health-connect
+Android,App/device integrity,YES,Play Integrity API,Backend evaluates app/device/account/environment verdicts,https://developer.android.com/google/play/integrity/overview
+Android,Read every other app private directory,NO,Scoped storage/sandbox,Even broad external-storage access does not grant other app-specific dirs,https://developer.android.com/training/data-storage/manage-all-files
+Windows,Passkeys/biometric login,YES,Windows Hello/WebAuthn via web/native bridges,Use OS cryptographic keys; custom face proofing separate,https://learn.microsoft.com/windows/security/identity-protection/hello-for-business/
+macOS,Passkeys/keychain/native security,YES,AuthenticationServices/Keychain/Secure Enclave where available,macOS-specific entitlements and sandbox rules apply,https://developer.apple.com/documentation/authenticationservices
+Web/PWA,Passkeys,YES,WebAuthn,Browser/OS authenticators; no access to arbitrary device secrets,https://www.w3.org/TR/webauthn-3/
