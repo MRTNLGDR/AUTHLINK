@@ -1,0 +1,69 @@
+category,project,repository,license,integration_mode,role,policy,verification
+Shell,Tauri,https://github.com/tauri-apps/tauri,MIT OR Apache-2.0,library/runtime,Desktop/mobile shell; native plugins,CORE,canonical registry; verify pinned
+Web,React,https://github.com/facebook/react,MIT,library,UI projections,CORE,web verified
+Web,Vite,https://github.com/vitejs/vite,MIT,build,Web build/dev server,CORE,verify pinned
+Web,TypeScript,https://github.com/microsoft/TypeScript,Apache-2.0,build/library,Typed UI/contracts,CORE,verify pinned
+Rust,Axum,https://github.com/tokio-rs/axum,MIT,library,HTTP gateway/services,CORE,canonical registry
+Rust,Tokio,https://github.com/tokio-rs/tokio,MIT,library,Async runtime,CORE,verify pinned
+Rust,SQLx,https://github.com/launchbadge/sqlx,MIT OR Apache-2.0,library,Postgres/SQLite access,CORE,canonical registry
+Rust,tonic,https://github.com/hyperium/tonic,MIT,library,gRPC internal,CORE,verify pinned
+Rust,serde,https://github.com/serde-rs/serde,MIT OR Apache-2.0,library,Serialization,CORE,verify pinned
+Identity,Rauthy,https://github.com/sebadob/rauthy,Apache-2.0,runtime,V3 permissive IdP profile; OIDC/OAuth/passkeys,CORE,web verified 2026-08-07
+Identity,Kanidm,https://github.com/kanidm/kanidm,MPL-2.0,runtime/service,Canonical-doc enterprise directory IdP profile,OPTIONAL_ISOLATED,canonical + web verified
+Authorization,OpenFGA,https://github.com/openfga/openfga,Apache-2.0,runtime,Canonical ReBAC authorization,CORE,web verified 2026-08-07
+Authorization,Cedar,https://github.com/cedar-policy/cedar,Apache-2.0,library,Local/edge policy cache and ABAC-like policy,CORE_OPTIONAL,canonical registry
+Crypto,Argon2 reference,https://github.com/P-H-C/phc-winner-argon2,CC0 OR Apache-2.0,reference/library,Password KDF reference,CORE,web/canonical verify pinned
+Crypto,BLAKE3,https://github.com/BLAKE3-team/BLAKE3,CC0 OR Apache-2.0,library,Fast content hashing/Merkle,CORE,web verified
+Crypto,Orion,https://github.com/orion-rs/orion,MIT,library,High-level Rust crypto,CORE,web verified
+Crypto,keyring-rs,https://github.com/open-source-cooperative/keyring-rs,MIT OR Apache-2.0,library,OS keystore/keychain bridge,CORE,web verified
+Crypto,rustls,https://github.com/rustls/rustls,permissive; verify pinned,library,TLS,CORE,verify pinned before distribution
+Data,PostgreSQL,https://github.com/postgres/postgres,PostgreSQL License,runtime,Canonical connected relational authority,CORE,canonical registry
+Data,SQLite,https://github.com/sqlite/sqlite,Public Domain,library/runtime,Edge projections/outbox/cache,CORE,public domain; verify mirror/pin
+Data,PostgREST,https://github.com/PostgREST/postgrest,MIT,runtime,REST compatibility behind Gateway/RLS,CORE_OPTIONAL,canonical registry
+Data,pg_graphql,https://github.com/supabase/pg_graphql,Apache-2.0,runtime,Optional GraphQL compatibility,OPTIONAL,canonical registry
+Data,Supabase Realtime,https://github.com/supabase/realtime,Apache-2.0,runtime,DB change subscriptions only,CORE_OPTIONAL,canonical registry
+Data,postgres-meta,https://github.com/supabase/postgres-meta,Apache-2.0,runtime,Database admin API,DEV,canonical registry
+Platform,Supabase,https://github.com/supabase/supabase,Apache-2.0,fork/platform,AIIA Base functional reference/fork,DEV_PLATFORM,canonical registry
+Storage,SeaweedFS,https://github.com/seaweedfs/seaweedfs,Apache-2.0,runtime,Permissive distributed blob backend candidate,CORE,canonical registry; final backend decision open
+Vector,Qdrant,https://github.com/qdrant/qdrant,Apache-2.0,runtime,Canonical semantic vector index,CORE,canonical/web verified
+Search,Tantivy,https://github.com/quickwit-oss/tantivy,MIT,library,Rust full-text/BM25,CORE,web verified
+Analytics,DataFusion,https://github.com/apache/datafusion,Apache-2.0,library,Analytics/dataframes/SQL,CORE,canonical/web verified
+Graph,Oxigraph,https://github.com/oxigraph/oxigraph,MIT OR Apache-2.0,library/runtime,RDF/SPARQL standards graph,CORE_OPTIONAL,canonical registry
+Ontology,Open Foundry,https://github.com/syzygyhack/open-foundry,Apache-2.0 (canon; verify pin),runtime/fork,Operational ontology/actions/lineage,CORE_OPTIONAL,canonical source; verify pinned
+Reasoning,Semantica,https://github.com/semantica-agi/semantica,MIT (canon; verify pin),runtime/fork,Reasoning/provenance/context graph,CORE_OPTIONAL,canonical source; verify pinned
+Events,Apache Kafka,https://github.com/apache/kafka,Apache-2.0,runtime,Durable domain-event backbone,CORE_SERVER,canonical registry
+Events,NATS Server,https://github.com/nats-io/nats-server,Apache-2.0,runtime,Edge/control messaging only,OPTIONAL_EDGE,canonical registry
+Observability,OpenTelemetry Rust,https://github.com/open-telemetry/opentelemetry-rust,Apache-2.0,library,Traces/metrics/log context,CORE,verify pinned
+Comms,OpenMLS,https://github.com/openmls/openmls,MIT,library,MLS E2EE primitive,CORE,web verified
+Comms,Matrix Rust SDK,https://github.com/matrix-org/matrix-rust-sdk,Apache-2.0,library,Messaging sync/client/E2EE substrate,CORE_OPTIONAL,web verified
+Comms,Tuwunel,https://github.com/matrix-construct/tuwunel,Apache-2.0,runtime,Rust Matrix homeserver/federation substrate,CORE_OPTIONAL,web verified
+Calls,LiveKit,https://github.com/livekit/livekit,Apache-2.0,runtime,WebRTC SFU for calls/meet,CORE_OPTIONAL,verify pinned
+Nearby,Iroh,https://github.com/n0-computer/iroh,MIT OR Apache-2.0,library,QUIC + NAT traversal/peer dialing,CORE,web verified
+Nearby,rust-libp2p,https://github.com/libp2p/rust-libp2p,MIT,library,P2P transports/peer discovery adapters,CORE_OPTIONAL,canonical registry
+Nearby,Quinn,https://github.com/quinn-rs/quinn,MIT OR Apache-2.0,library,QUIC transport primitive,CORE_OPTIONAL,verify pinned
+Collab,Automerge,https://github.com/automerge/automerge,MIT,library,CRDT/offline collaborative docs,CORE,web verified
+Editor,Lexical,https://github.com/facebook/lexical,MIT,library,Knowledge/post rich-text editor,CORE,web verified
+Learning,FSRS Rust,https://github.com/open-spaced-repetition/fsrs-rs,MIT (verify root license),library,Spaced repetition scheduler,CORE_OPTIONAL,repo verified; pin/license gate
+Biometric R&D,MediaPipe,https://github.com/google-ai-edge/mediapipe,Apache-2.0,library/reference,Face landmarks/on-device CV; NOT bank-grade identity proof by itself,RND_ONLY,web verified
+Biometric R&D,OpenCV,https://github.com/opencv/opencv,Apache-2.0,library,Image preprocessing/document/vision utilities,RND_ONLY,canonical/web verified
+FHIR,HAPI FHIR,https://github.com/hapifhir/hapi-fhir,Apache-2.0,external service/reference,FHIR validation/interoperability option,OPTIONAL_EXTERNAL,web verified; Java boundary
+Maps,MapLibre GL JS,https://github.com/maplibre/maplibre-gl-js,BSD-3-Clause,library,Map layer,OPTIONAL,canonical registry
+Globe,CesiumJS,https://github.com/CesiumGS/cesium,Apache-2.0,library,3D globe/geospatial,OPTIONAL,canonical registry
+GPU,wgpu,https://github.com/gfx-rs/wgpu,MIT OR Apache-2.0,library,Native/wasm GPU abstraction,CORE_OPTIONAL,canonical registry
+ECS,Bevy,https://github.com/bevyengine/bevy,MIT OR Apache-2.0,library,3D/ECS support where useful,OPTIONAL,canonical registry
+Agents,MCP Rust SDK,https://github.com/modelcontextprotocol/rust-sdk,Apache-2.0,library,MCP tools/resources/prompts,DEV_CORE,canonical registry
+Code,tree-sitter,https://github.com/tree-sitter/tree-sitter,MIT,library,Code parsing/symbols,DEV,verify pinned
+Editor,CodeMirror,https://github.com/codemirror/dev,MIT,library,Code/editor UI,DEV,verify pinned
+Terminal,xterm.js,https://github.com/xtermjs/xterm.js,MIT,library,Terminal UI,DEV,verify pinned
+Sandbox,Wasmtime,https://github.com/bytecodealliance/wasmtime,Apache-2.0 WITH LLVM-exception,runtime/library,WASM sandbox for plugins/functions,DEV_CORE,verify pinned
+Supply chain,Trivy,https://github.com/aquasecurity/trivy,Apache-2.0,tool,Vulnerability/SBOM scanning,BUILD,verify pinned
+Supply chain,Syft,https://github.com/anchore/syft,Apache-2.0,tool,SBOM generation,BUILD,verify pinned
+Supply chain,Grype,https://github.com/anchore/grype,Apache-2.0,tool,Vulnerability scan,BUILD,verify pinned
+Supply chain,Cosign,https://github.com/sigstore/cosign,Apache-2.0,tool,Artifact signing/provenance,BUILD,verify pinned
+Chain,Cosmos SDK,https://github.com/cosmos/cosmos-sdk,Apache-2.0 core,runtime/dependency,Least-code sovereign L1 profile,CHAIN_SEPARATE,web verified; enterprise/ has different terms
+Chain,CometBFT,https://github.com/cometbft/cometbft,Apache-2.0,runtime,BFT consensus for sovereign chain,CHAIN_SEPARATE,web verified
+Chain,Reth,https://github.com/paradigmxyz/reth,MIT OR Apache-2.0,runtime/library,Strict-Rust EVM execution option; not sovereign consensus alone,CHAIN_OPTIONAL,web verified
+Chain,Hyperledger Besu,https://github.com/hyperledger/besu,Apache-2.0,runtime,Permissioned/public EVM option if Java acceptable,CHAIN_OPTIONAL,web verified
+Brazil finance spec,BACEN Pix API,https://github.com/bacen/pix-api,spec/repository; verify terms,reference/generated-client,Pix API specification reference,REGULATED_ADAPTER,official GitHub
+Brazil finance spec,BACEN DICT API,https://github.com/bacen/pix-dict-api,spec/repository; verify terms,reference/generated-client,DICT specification; participant access rules apply,REGULATED_ADAPTER,official GitHub
+Brazil finance spec,Open Finance Brasil security specs,https://github.com/OpenBanking-Brasil/specs-seguranca,specs; verify per file/version,reference,Security/FAPI implementation reference,REGULATED_ADAPTER,official governance repo; normative version elsewhere
