@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/authlink-contracts",
+  "crates/authlink-guardian",
   "services/gateway",
   "apps/shell/src-tauri"
 ]
