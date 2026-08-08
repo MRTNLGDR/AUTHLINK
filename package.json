@@ -1,0 +1,11 @@
+{
+  "name": "authlink-aiia-suite",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/web", "apps/shell"],
+  "scripts": {
+    "dev": "npm run dev -w @authlink/web",
+    "build": "npm run build -w @authlink/web",
+    "check": "npm run check -w @authlink/web"
+  }
+}
