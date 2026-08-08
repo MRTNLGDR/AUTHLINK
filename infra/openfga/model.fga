@@ -1,0 +1,51 @@
+model
+  schema 1.1
+
+type user
+
+type organization
+  relations
+    define member: [user]
+    define admin: [user]
+
+type workspace
+  relations
+    define parent: [organization]
+    define viewer: [user, organization#member]
+    define editor: [user]
+    define operator: [user]
+    define approver: [user]
+    define admin: [user, organization#admin]
+    define can_view: viewer or editor or operator or approver or admin
+    define can_edit: editor or operator or approver or admin
+    define can_operate: operator or admin
+    define can_approve: approver or admin
+    define can_admin: admin
+
+type app
+  relations
+    define entitled: [user, organization#member]
+    define blocked: [user]
+    define can_launch: entitled but not blocked
+
+type identity
+  relations
+    define owner: [user]
+    define delegate: [user]
+    define can_read: owner or delegate
+    define can_manage: owner
+
+type vault
+  relations
+    define owner: [user]
+    define reader: [user]
+    define can_read: owner or reader
+    define can_write: owner
+
+type conversation
+  relations
+    define member: [user]
+    define moderator: [user]
+    define can_read: member or moderator
+    define can_write: member or moderator
+    define can_moderate: moderator
