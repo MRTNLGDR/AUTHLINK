@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: authlink
+      POSTGRES_PASSWORD: authlink_dev_only
+      POSTGRES_DB: authlink
+    ports: ["54329:5432"]
+    volumes: ["authlink_pg:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authlink"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  openfga-migrate:
+    image: openfga/openfga:latest
+    command: migrate
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://authlink:authlink_dev_only@postgres:5432/authlink?sslmode=disable
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  openfga:
+    image: openfga/openfga:latest
+    command: run
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://authlink:authlink_dev_only@postgres:5432/authlink?sslmode=disable
+      OPENFGA_LOG_FORMAT: json
+    ports: ["8080:8080", "8081:8081"]
+    depends_on:
+      openfga-migrate: { condition: service_completed_successfully }
+
+  rauthy:
+    image: ghcr.io/sebadob/rauthy:0.36.0
+    ports: ["8085:8080"]
+    volumes: ["rauthy_data:/app/data"]
+    restart: unless-stopped
+
+volumes:
+  authlink_pg:
+  rauthy_data:
