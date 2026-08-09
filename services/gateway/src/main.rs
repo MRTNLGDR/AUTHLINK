@@ -4,7 +4,7 @@ use authlink_contracts::{
 };
 use authlink_guardian::evaluate;
 use authlink_idp::{unconfigured_status, OidcClient, OidcMetadata, PublicOidcStatus};
-use authlink_policy::{OpenFgaClient, PolicyCheck, PolicyDecision};
+use authlink_policy::{OpenFgaClient, PolicyCheck, PolicyDecision, RelationshipTuple};
 use authlink_store::AuthlinkStore;
 use axum::{
     extract::{Query, State},
@@ -46,10 +46,20 @@ struct LoginTransaction {
 
 #[derive(Debug, Clone)]
 struct MemorySession {
+    identity_id: Uuid,
     subject: String,
     display_name: Option<String>,
     auth_strength: String,
     expires_at: Instant,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedSession {
+    session_id: Uuid,
+    identity_id: Uuid,
+    subject: String,
+    display_name: Option<String>,
+    auth_strength: String,
 }
 
 #[derive(Clone)]
@@ -110,6 +120,14 @@ struct PolicyStatus {
 struct OidcStartResponse {
     authorization_url: String,
     state: String,
+}
+
+#[derive(Serialize)]
+struct SelfPolicyBootstrap {
+    identity_ref: String,
+    user_ref: String,
+    relation: &'static str,
+    source: &'static str,
 }
 
 #[derive(Deserialize)]
@@ -194,6 +212,7 @@ async fn main() {
         cap("identity.oidc-pkce", "OIDC Authorization Code + PKCE", "identity"),
         cap("identity.onboarding", "Cerimônia de identidade", "identity"),
         cap("authorization.openfga", "OpenFGA ReBAC", "identity"),
+        cap("authorization.session-bound", "Session-bound authorization", "identity"),
         cap("persistence.postgres", "PostgreSQL authority", "platform"),
         cap("security.guardian", "Guardian", "security"),
         cap("security.step_up", "Step-up authentication", "security"),
@@ -247,6 +266,7 @@ async fn main() {
         .route("/api/v1/authlink/security/evaluate", post(evaluate_guardian))
         .route("/api/v1/authlink/policy/status", get(policy_status))
         .route("/api/v1/authlink/policy/check", post(policy_check))
+        .route("/api/v1/authlink/policy/bootstrap-self", post(bootstrap_self_policy))
         .route("/api/v1/capabilities/authlink", get(list_capabilities))
         .fallback(not_found)
         .with_state(state)
@@ -471,14 +491,29 @@ async fn oidc_callback(State(state): State<AppState>, Query(query): Query<OidcCa
 
     let session_id = Uuid::new_v4();
     let display_name = user.name.clone().or(user.preferred_username.clone());
-    if let Some(store) = &state.store {
-        let identity_id = match store.upsert_oidc_identity(state.tenant_id, &user.sub, display_name.as_deref()).await {
+    let identity_id = if let Some(store) = &state.store {
+        match store.upsert_oidc_identity(state.tenant_id, &user.sub, display_name.as_deref()).await {
             Ok(identity_id) => identity_id,
             Err(error) => {
                 tracing::error!(error = %error, "failed to persist OIDC identity");
                 return oidc_failure_redirect(&state, "identity_persistence_failed");
             }
-        };
+        }
+    } else {
+        Uuid::now_v7()
+    };
+
+    if let Some(policy) = &state.policy {
+        let tuple = self_owner_tuple(identity_id);
+        if let Err(error) = policy.ensure_tuple(&tuple).await {
+            tracing::error!(error = %error, %identity_id, "failed to provision AuthLink identity ownership relation");
+            return oidc_failure_redirect(&state, "authorization_provisioning_failed");
+        }
+    } else if !state.policy_dev_bypass {
+        return oidc_failure_redirect(&state, "authorization_unavailable");
+    }
+
+    if let Some(store) = &state.store {
         if let Err(error) = store
             .create_session(session_id, state.tenant_id, identity_id, "authlink-web", "suite.access", "oidc", SESSION_TTL_SECONDS)
             .await
@@ -493,6 +528,7 @@ async fn oidc_callback(State(state): State<AppState>, Query(query): Query<OidcCa
         };
         sessions.retain(|_, value| value.expires_at > Instant::now());
         sessions.insert(session_id, MemorySession {
+            identity_id,
             subject: user.sub,
             display_name,
             auth_strength: "oidc".into(),
@@ -509,49 +545,19 @@ async fn oidc_callback(State(state): State<AppState>, Query(query): Query<OidcCa
 }
 
 async fn session(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    let Some(session_id) = session_id_from_headers(&headers) else {
-        return unauthenticated_session();
-    };
-
-    if let Some(store) = &state.store {
-        return match store.load_active_session(session_id).await {
-            Ok(Some(session)) => (
-                StatusCode::OK,
-                Json(SessionSummary {
-                    authenticated: true,
-                    subject: Some(session.subject),
-                    display_name: session.display_name,
-                    auth_strength: Some(session.auth_strength),
-                    trusted_device: false,
-                    online: true,
-                }),
-            ).into_response(),
-            Ok(None) => unauthenticated_session(),
-            Err(error) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "SESSION_LOAD_FAILED", "developer_message": error.to_string() })),
-            ).into_response(),
-        };
-    }
-
-    let mut sessions = match state.memory_sessions.lock() {
-        Ok(sessions) => sessions,
-        Err(_) => return internal_error("SESSION_STATE_UNAVAILABLE"),
-    };
-    sessions.retain(|_, value| value.expires_at > Instant::now());
-    match sessions.get(&session_id) {
-        Some(session) => (
+    match resolve_session(&state, &headers).await {
+        Ok(session) => (
             StatusCode::OK,
             Json(SessionSummary {
                 authenticated: true,
-                subject: Some(session.subject.clone()),
-                display_name: session.display_name.clone(),
-                auth_strength: Some(session.auth_strength.clone()),
+                subject: Some(session.subject),
+                display_name: session.display_name,
+                auth_strength: Some(session.auth_strength),
                 trusted_device: false,
                 online: true,
             }),
         ).into_response(),
-        None => unauthenticated_session(),
+        Err(response) => response,
     }
 }
 
@@ -706,19 +712,33 @@ async fn reset_onboarding(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
-async fn security_overview() -> Json<GuardianDecision> {
-    Json(evaluate(&GuardianSignals { strong_auth_credit: 6, ..GuardianSignals::default() }))
+async fn security_overview(State(state): State<AppState>, headers: HeaderMap) -> axum::response::Response {
+    if let Err(response) = authorize_current_identity(&state, &headers, "can_read").await {
+        return response;
+    }
+    Json(evaluate(&GuardianSignals { strong_auth_credit: 6, ..GuardianSignals::default() })).into_response()
 }
 
-async fn evaluate_guardian(State(state): State<AppState>, Json(signals): Json<GuardianSignals>) -> Json<GuardianDecision> {
+async fn evaluate_guardian(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(signals): Json<GuardianSignals>,
+) -> axum::response::Response {
+    if let Err(response) = authorize_current_identity(&state, &headers, "can_manage").await {
+        return response;
+    }
     let decision = evaluate(&signals);
     if let Some(store) = &state.store {
         let correlation_id = Uuid::now_v7();
         if let Err(error) = store.record_guardian_decision(&decision, &signals, correlation_id).await {
             tracing::error!(%correlation_id, error = %error, "failed to persist Guardian decision");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "GUARDIAN_AUDIT_WRITE_FAILED", "correlation_id": correlation_id })),
+            ).into_response();
         }
     }
-    Json(decision)
+    Json(decision).into_response()
 }
 
 async fn policy_status(State(state): State<AppState>) -> Json<PolicyStatus> {
@@ -729,7 +749,53 @@ async fn policy_status(State(state): State<AppState>) -> Json<PolicyStatus> {
     })
 }
 
-async fn policy_check(State(state): State<AppState>, Json(check): Json<PolicyCheck>) -> impl IntoResponse {
+async fn bootstrap_self_policy(State(state): State<AppState>, headers: HeaderMap) -> axum::response::Response {
+    let session = match resolve_session(&state, &headers).await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
+    let tuple = self_owner_tuple(session.identity_id);
+    if let Some(policy) = &state.policy {
+        if let Err(error) = policy.ensure_tuple(&tuple).await {
+            return (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": "POLICY_PROVISION_FAILED", "developer_message": error.to_string() })),
+            ).into_response();
+        }
+        return Json(SelfPolicyBootstrap {
+            identity_ref: tuple.object,
+            user_ref: tuple.user,
+            relation: "owner",
+            source: "openfga",
+        }).into_response();
+    }
+    if state.policy_dev_bypass {
+        return Json(SelfPolicyBootstrap {
+            identity_ref: tuple.object,
+            user_ref: tuple.user,
+            relation: "owner",
+            source: "development-bypass",
+        }).into_response();
+    }
+    (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "POLICY_UNAVAILABLE" }))).into_response()
+}
+
+async fn policy_check(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(check): Json<PolicyCheck>,
+) -> axum::response::Response {
+    let session = match resolve_session(&state, &headers).await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
+    let expected_user = fga_user(session.identity_id);
+    if check.user != expected_user {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "POLICY_CHECK_USER_MISMATCH" })),
+        ).into_response();
+    }
     if let Some(policy) = &state.policy {
         return match policy.check(&check).await {
             Ok(decision) => (StatusCode::OK, Json(decision)).into_response(),
@@ -749,6 +815,88 @@ async fn policy_check(State(state): State<AppState>, Json(check): Json<PolicyChe
         StatusCode::SERVICE_UNAVAILABLE,
         Json(serde_json::json!({ "error": "POLICY_UNAVAILABLE" })),
     ).into_response()
+}
+
+async fn resolve_session(state: &AppState, headers: &HeaderMap) -> Result<ResolvedSession, axum::response::Response> {
+    let Some(session_id) = session_id_from_headers(headers) else {
+        return Err(unauthenticated_session());
+    };
+
+    if let Some(store) = &state.store {
+        return match store.load_active_session(session_id).await {
+            Ok(Some(session)) => Ok(ResolvedSession {
+                session_id: session.id,
+                identity_id: session.identity_id,
+                subject: session.subject,
+                display_name: session.display_name,
+                auth_strength: session.auth_strength,
+            }),
+            Ok(None) => Err(unauthenticated_session()),
+            Err(error) => Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "SESSION_LOAD_FAILED", "developer_message": error.to_string() })),
+            ).into_response()),
+        };
+    }
+
+    let mut sessions = state.memory_sessions.lock().map_err(|_| internal_error("SESSION_STATE_UNAVAILABLE"))?;
+    sessions.retain(|_, value| value.expires_at > Instant::now());
+    match sessions.get(&session_id) {
+        Some(session) => Ok(ResolvedSession {
+            session_id,
+            identity_id: session.identity_id,
+            subject: session.subject.clone(),
+            display_name: session.display_name.clone(),
+            auth_strength: session.auth_strength.clone(),
+        }),
+        None => Err(unauthenticated_session()),
+    }
+}
+
+async fn authorize_current_identity(
+    state: &AppState,
+    headers: &HeaderMap,
+    relation: &str,
+) -> Result<ResolvedSession, axum::response::Response> {
+    let session = resolve_session(state, headers).await?;
+    if let Some(policy) = &state.policy {
+        let check = PolicyCheck {
+            user: fga_user(session.identity_id),
+            relation: relation.to_owned(),
+            object: fga_identity(session.identity_id),
+        };
+        return match policy.check(&check).await {
+            Ok(decision) if decision.allowed => Ok(session),
+            Ok(_) => Err((
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({ "error": "PERMISSION_DENIED", "relation": relation })),
+            ).into_response()),
+            Err(error) => Err((
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": "POLICY_UPSTREAM_FAILED", "developer_message": error.to_string() })),
+            ).into_response()),
+        };
+    }
+    if state.policy_dev_bypass {
+        return Ok(session);
+    }
+    Err((StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "POLICY_UNAVAILABLE" }))).into_response())
+}
+
+fn self_owner_tuple(identity_id: Uuid) -> RelationshipTuple {
+    RelationshipTuple {
+        user: fga_user(identity_id),
+        relation: "owner".into(),
+        object: fga_identity(identity_id),
+    }
+}
+
+fn fga_user(identity_id: Uuid) -> String {
+    format!("user:{identity_id}")
+}
+
+fn fga_identity(identity_id: Uuid) -> String {
+    format!("identity:{identity_id}")
 }
 
 fn session_id_from_headers(headers: &HeaderMap) -> Option<Uuid> {

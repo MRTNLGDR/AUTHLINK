@@ -39,14 +39,39 @@ pub struct PolicyCheck {
     pub object: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelationshipTuple {
+    pub user: String,
+    pub relation: String,
+    pub object: String,
+}
+
+fn validate_tuple(user: &str, relation: &str, object: &str) -> Result<(), PolicyError> {
+    for (name, value) in [("user", user), ("relation", relation), ("object", object)] {
+        if value.trim().is_empty() {
+            return Err(PolicyError::InvalidCheck(format!("{name} cannot be empty")));
+        }
+    }
+    Ok(())
+}
+
 impl PolicyCheck {
     pub fn validate(&self) -> Result<(), PolicyError> {
-        for (name, value) in [("user", &self.user), ("relation", &self.relation), ("object", &self.object)] {
-            if value.trim().is_empty() {
-                return Err(PolicyError::InvalidCheck(format!("{name} cannot be empty")));
-            }
+        validate_tuple(&self.user, &self.relation, &self.object)
+    }
+}
+
+impl RelationshipTuple {
+    pub fn validate(&self) -> Result<(), PolicyError> {
+        validate_tuple(&self.user, &self.relation, &self.object)
+    }
+
+    pub fn as_check(&self) -> PolicyCheck {
+        PolicyCheck {
+            user: self.user.clone(),
+            relation: self.relation.clone(),
+            object: self.object.clone(),
         }
-        Ok(())
     }
 }
 
@@ -60,7 +85,7 @@ pub struct PolicyDecision {
 pub enum PolicyError {
     #[error("policy configuration error: {0}")]
     Configuration(String),
-    #[error("invalid authorization check: {0}")]
+    #[error("invalid authorization tuple: {0}")]
     InvalidCheck(String),
     #[error("OpenFGA request failed: {0}")]
     Transport(#[from] reqwest::Error),
@@ -85,14 +110,18 @@ impl OpenFgaClient {
         Ok(OpenFgaConfig::from_env()?.map(Self::new))
     }
 
-    pub fn endpoint(&self) -> String {
+    pub fn check_endpoint(&self) -> String {
         format!("{}/stores/{}/check", self.config.api_url, self.config.store_id)
+    }
+
+    pub fn write_endpoint(&self) -> String {
+        format!("{}/stores/{}/write", self.config.api_url, self.config.store_id)
     }
 
     pub async fn check(&self, check: &PolicyCheck) -> Result<PolicyDecision, PolicyError> {
         check.validate()?;
         let body = check_payload(check, self.config.authorization_model_id.as_deref());
-        let mut request = self.http.post(self.endpoint()).json(&body);
+        let mut request = self.http.post(self.check_endpoint()).json(&body);
         if let Some(token) = &self.config.api_token {
             request = request.bearer_auth(token);
         }
@@ -105,6 +134,29 @@ impl OpenFgaClient {
         let body: Value = response.json().await?;
         let allowed = body.get("allowed").and_then(Value::as_bool).ok_or(PolicyError::InvalidResponse)?;
         Ok(PolicyDecision { allowed, source: "openfga".into() })
+    }
+
+    pub async fn write_tuple(&self, tuple: &RelationshipTuple) -> Result<(), PolicyError> {
+        tuple.validate()?;
+        let body = write_payload(tuple, self.config.authorization_model_id.as_deref());
+        let mut request = self.http.post(self.write_endpoint()).json(&body);
+        if let Some(token) = &self.config.api_token {
+            request = request.bearer_auth(token);
+        }
+        let response = request.send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_else(|_| "<unreadable>".into());
+            return Err(PolicyError::Upstream { status, body });
+        }
+        Ok(())
+    }
+
+    pub async fn ensure_tuple(&self, tuple: &RelationshipTuple) -> Result<(), PolicyError> {
+        if self.check(&tuple.as_check()).await?.allowed {
+            return Ok(());
+        }
+        self.write_tuple(tuple).await
     }
 }
 
@@ -122,6 +174,22 @@ pub fn check_payload(check: &PolicyCheck, model_id: Option<&str>) -> Value {
     body
 }
 
+pub fn write_payload(tuple: &RelationshipTuple, model_id: Option<&str>) -> Value {
+    let mut body = json!({
+        "writes": {
+            "tuple_keys": [{
+                "user": tuple.user,
+                "relation": tuple.relation,
+                "object": tuple.object
+            }]
+        }
+    });
+    if let Some(model_id) = model_id {
+        body["authorization_model_id"] = Value::String(model_id.to_owned());
+    }
+    body
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,13 +197,25 @@ mod tests {
     #[test]
     fn payload_matches_openfga_check_contract() {
         let body = check_payload(
-            &PolicyCheck { user: "user:019".into(), relation: "viewer".into(), object: "authlink:identity:019".into() },
+            &PolicyCheck { user: "user:019".into(), relation: "can_read".into(), object: "identity:019".into() },
             Some("01MODEL"),
         );
         assert_eq!(body["authorization_model_id"], "01MODEL");
         assert_eq!(body["tuple_key"]["user"], "user:019");
-        assert_eq!(body["tuple_key"]["relation"], "viewer");
-        assert_eq!(body["tuple_key"]["object"], "authlink:identity:019");
+        assert_eq!(body["tuple_key"]["relation"], "can_read");
+        assert_eq!(body["tuple_key"]["object"], "identity:019");
+    }
+
+    #[test]
+    fn payload_matches_openfga_write_contract() {
+        let tuple = RelationshipTuple { user: "user:019".into(), relation: "owner".into(), object: "identity:019".into() };
+        let body = write_payload(&tuple, Some("01MODEL"));
+        assert_eq!(body["authorization_model_id"], "01MODEL");
+        assert_eq!(body["writes"]["tuple_keys"][0]["user"], "user:019");
+        assert_eq!(body["writes"]["tuple_keys"][0]["relation"], "owner");
+        assert_eq!(body["writes"]["tuple_keys"][0]["object"], "identity:019");
+        let check = tuple.as_check();
+        assert_eq!(check.relation, "owner");
     }
 
     #[test]
