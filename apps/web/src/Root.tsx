@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { App } from './App';
 import { AuthFlow } from './AuthFlow';
 import { authApi } from './auth-api';
+import './session.css';
 
 function enrolled() {
   return localStorage.getItem('authlink.enrolled') === '1';
