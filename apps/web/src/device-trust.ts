@@ -1,4 +1,4 @@
-const DEVICE_API = import.meta.env.VITE_AUTHLINK_DEVICE_API ?? 'http://127.0.0.1:8789/api/v1';
+const DEVICE_API = import.meta.env.VITE_AUTHLINK_DEVICE_API ?? 'http://localhost:8789/api/v1';
 const DB_NAME = 'authlink-device-trust-v1';
 const STORE_NAME = 'device-keys';
 const RECORD_KEY = 'primary';
