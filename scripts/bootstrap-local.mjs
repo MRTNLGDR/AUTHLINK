@@ -45,6 +45,23 @@ function randomPassword() {
   return `AL-${randomBytes(18).toString('base64url')}-9a!`;
 }
 
+function randomRauthyKey() {
+  // Rauthy expects the configured key value itself to be exactly 32 bytes.
+  // 24 random bytes encoded as base64url produce exactly 32 ASCII bytes.
+  return randomBytes(24).toString('base64url');
+}
+
+function validRauthyKeys(value) {
+  if (!value) return false;
+  return value.split(',').every(entry => {
+    const slash = entry.indexOf('/');
+    if (slash < 1) return false;
+    const id = entry.slice(0, slash);
+    const key = entry.slice(slash + 1);
+    return id.length > 0 && Buffer.byteLength(key, 'utf8') === 32;
+  });
+}
+
 function ensureEnv() {
   const env = existsSync(envPath) ? parseEnv(readFileSync(envPath, 'utf8')) : {};
   env.AUTHLINK_ENV ??= 'development';
@@ -63,8 +80,8 @@ function ensureEnv() {
   env.AUTHLINK_OIDC_SCOPES ??= 'openid profile email';
   env.VITE_AUTHLINK_API ??= 'http://localhost:8787/api/v1';
   env.RAUTHY_ENC_KEY_ACTIVE ??= 'authlink-local';
-  if (!env.RAUTHY_ENC_KEYS) {
-    env.RAUTHY_ENC_KEYS = `${env.RAUTHY_ENC_KEY_ACTIVE}/${randomBytes(32).toString('base64')}`;
+  if (!validRauthyKeys(env.RAUTHY_ENC_KEYS)) {
+    env.RAUTHY_ENC_KEYS = `${env.RAUTHY_ENC_KEY_ACTIVE}/${randomRauthyKey()}`;
   }
   env.RAUTHY_ADMIN_PASSWORD ||= randomPassword();
   writeFileSync(envPath, renderEnv(env), { mode: 0o600 });
