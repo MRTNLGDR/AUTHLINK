@@ -65,6 +65,14 @@ impl RelationshipTuple {
     pub fn validate(&self) -> Result<(), PolicyError> {
         validate_tuple(&self.user, &self.relation, &self.object)
     }
+
+    pub fn as_check(&self) -> PolicyCheck {
+        PolicyCheck {
+            user: self.user.clone(),
+            relation: self.relation.clone(),
+            object: self.object.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,6 +151,13 @@ impl OpenFgaClient {
         }
         Ok(())
     }
+
+    pub async fn ensure_tuple(&self, tuple: &RelationshipTuple) -> Result<(), PolicyError> {
+        if self.check(&tuple.as_check()).await?.allowed {
+            return Ok(());
+        }
+        self.write_tuple(tuple).await
+    }
 }
 
 pub fn check_payload(check: &PolicyCheck, model_id: Option<&str>) -> Value {
@@ -193,14 +208,14 @@ mod tests {
 
     #[test]
     fn payload_matches_openfga_write_contract() {
-        let body = write_payload(
-            &RelationshipTuple { user: "user:019".into(), relation: "owner".into(), object: "identity:019".into() },
-            Some("01MODEL"),
-        );
+        let tuple = RelationshipTuple { user: "user:019".into(), relation: "owner".into(), object: "identity:019".into() };
+        let body = write_payload(&tuple, Some("01MODEL"));
         assert_eq!(body["authorization_model_id"], "01MODEL");
         assert_eq!(body["writes"]["tuple_keys"][0]["user"], "user:019");
         assert_eq!(body["writes"]["tuple_keys"][0]["relation"], "owner");
         assert_eq!(body["writes"]["tuple_keys"][0]["object"], "identity:019");
+        let check = tuple.as_check();
+        assert_eq!(check.relation, "owner");
     }
 
     #[test]
