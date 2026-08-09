@@ -1,3 +1,5 @@
+name: authlink-dev
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -5,38 +7,65 @@ services:
       POSTGRES_USER: authlink
       POSTGRES_PASSWORD: authlink_dev_only
       POSTGRES_DB: authlink
-    ports: ["54329:5432"]
-    volumes: ["authlink_pg:/var/lib/postgresql/data"]
+    ports:
+      - "54329:5432"
+    volumes:
+      - authlink_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U authlink"]
+      test: ["CMD-SHELL", "pg_isready -U authlink -d authlink"]
       interval: 5s
       timeout: 3s
       retries: 20
 
   openfga-migrate:
-    image: openfga/openfga:latest
+    image: openfga/openfga:v1.16.1
     command: migrate
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres
       OPENFGA_DATASTORE_URI: postgres://authlink:authlink_dev_only@postgres:5432/authlink?sslmode=disable
     depends_on:
-      postgres: { condition: service_healthy }
+      postgres:
+        condition: service_healthy
 
   openfga:
-    image: openfga/openfga:latest
+    image: openfga/openfga:v1.16.1
     command: run
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres
       OPENFGA_DATASTORE_URI: postgres://authlink:authlink_dev_only@postgres:5432/authlink?sslmode=disable
       OPENFGA_LOG_FORMAT: json
-    ports: ["8080:8080", "8081:8081"]
+      OPENFGA_PLAYGROUND_ENABLED: "true"
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+      - "3000:3000"
     depends_on:
-      openfga-migrate: { condition: service_completed_successfully }
+      openfga-migrate:
+        condition: service_completed_successfully
 
   rauthy:
     image: ghcr.io/sebadob/rauthy:0.36.0
-    ports: ["8085:8080"]
-    volumes: ["rauthy_data:/app/data"]
+    command: ["serve", "-c", "/app/config.toml"]
+    ports:
+      - "8085:8080"
+    environment:
+      LISTEN_SCHEME: http
+      PUB_URL: localhost:8085
+      BOOTSTRAP_DIR: /app/bootstrap
+      BOOTSTRAP_ADMIN_EMAIL: admin@authlink.local
+      BOOTSTRAP_ADMIN_PASSWORD_PLAIN: "${RAUTHY_ADMIN_PASSWORD:?run node scripts/bootstrap-local.mjs env first}"
+      ENC_KEYS: "${RAUTHY_ENC_KEYS:?run node scripts/bootstrap-local.mjs env first}"
+      ENC_KEY_ACTIVE: "${RAUTHY_ENC_KEY_ACTIVE:?run node scripts/bootstrap-local.mjs env first}"
+      RP_ID: localhost
+      RP_ORIGIN: http://localhost:8085
+      RP_NAME: AuthLink
+      HQL_INSECURE_COOKIE: "true"
+      ADMIN_FORCE_MFA: "false"
+      SMTP_DANGER_INSECURE: "true"
+    volumes:
+      - rauthy_data:/app/data
+      - ../../.authlink-local/rauthy/config.toml:/app/config.toml:ro
+      - ../../.authlink-local/rauthy-bootstrap:/app/bootstrap:ro
     restart: unless-stopped
 
 volumes:

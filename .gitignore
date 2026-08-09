@@ -3,6 +3,7 @@ dist/
 target/
 .env
 .env.local
+.authlink-local/
 .DS_Store
 *.log
 coverage/

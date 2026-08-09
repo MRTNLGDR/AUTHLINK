@@ -1,0 +1,296 @@
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, chmodSync } from 'node:fs';
+import { resolve, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+
+const root = resolve(import.meta.dirname, '..');
+const envPath = join(root, '.env.local');
+const localRoot = join(root, '.authlink-local');
+const rauthyRoot = join(localRoot, 'rauthy');
+const rauthyConfigPath = join(rauthyRoot, 'config.toml');
+const rauthyBootstrapDir = join(localRoot, 'rauthy-bootstrap');
+const composePath = join(root, 'infra', 'compose', 'docker-compose.dev.yml');
+const modelPath = join(root, 'infra', 'openfga', 'model.json');
+const migrationsDir = join(root, 'migrations');
+const mode = process.argv[2] ?? 'all';
+
+function parseEnv(text) {
+  const values = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const index = line.indexOf('=');
+    if (index < 1) continue;
+    values[line.slice(0, index)] = line.slice(index + 1);
+  }
+  return values;
+}
+
+function renderEnv(values) {
+  const groups = [
+    ['# Generated local-only AuthLink environment. DO NOT COMMIT.', ['AUTHLINK_ENV','AUTHLINK_GATEWAY_ADDR','AUTHLINK_WEB_URL','AUTHLINK_DEFAULT_TENANT_ID']],
+    ['# PostgreSQL authority', ['DATABASE_URL']],
+    ['# OpenFGA ReBAC', ['AUTHLINK_POLICY_DEV_BYPASS','OPENFGA_API_URL','OPENFGA_STORE_ID','OPENFGA_AUTHORIZATION_MODEL_ID','OPENFGA_MODEL_HASH']],
+    ['# Rauthy / OIDC + PKCE', [
+      'AUTHLINK_OIDC_ISSUER','AUTHLINK_OIDC_CLIENT_ID','AUTHLINK_OIDC_REDIRECT_URI','AUTHLINK_OIDC_SCOPES',
+      'RAUTHY_ENC_KEYS','RAUTHY_ENC_KEY_ACTIVE','RAUTHY_ADMIN_PASSWORD','RAUTHY_HQL_SECRET_RAFT','RAUTHY_HQL_SECRET_API'
+    ]],
+    ['# Web', ['VITE_AUTHLINK_API']],
+  ];
+  const lines = [];
+  for (const [comment, keys] of groups) {
+    lines.push(comment);
+    for (const key of keys) lines.push(`${key}=${values[key] ?? ''}`);
+    lines.push('');
+  }
+  return `${lines.join('\n').trim()}\n`;
+}
+
+function randomPassword() {
+  return `AL-${randomBytes(18).toString('base64url')}-9a!`;
+}
+
+function randomSecret(bytes = 32) {
+  return randomBytes(bytes).toString('base64url');
+}
+
+function randomRauthyKey() {
+  return randomBytes(32).toString('base64');
+}
+
+function validRauthyKeys(value) {
+  if (!value) return false;
+  return value.split(/\r?\n|,/).filter(Boolean).every(entry => {
+    const slash = entry.indexOf('/');
+    if (slash < 1) return false;
+    const id = entry.slice(0, slash);
+    const encoded = entry.slice(slash + 1);
+    if (!/^[a-zA-Z0-9:_-]{2,20}$/.test(id) || !encoded) return false;
+    try {
+      const decoded = Buffer.from(encoded, 'base64');
+      const normalized = decoded.toString('base64').replace(/=+$/,'');
+      return decoded.length === 32 && normalized === encoded.replace(/=+$/,'');
+    } catch {
+      return false;
+    }
+  });
+}
+
+function ensureEnv() {
+  const env = existsSync(envPath) ? parseEnv(readFileSync(envPath, 'utf8')) : {};
+  env.AUTHLINK_ENV ??= 'development';
+  env.AUTHLINK_GATEWAY_ADDR ??= '127.0.0.1:8787';
+  env.AUTHLINK_WEB_URL ??= 'http://localhost:5173';
+  env.AUTHLINK_DEFAULT_TENANT_ID ??= '00000000-0000-7000-8000-000000000001';
+  env.DATABASE_URL ??= 'postgres://authlink:authlink_dev_only@127.0.0.1:54329/authlink';
+  env.AUTHLINK_POLICY_DEV_BYPASS ??= 'false';
+  env.OPENFGA_API_URL ??= 'http://localhost:8080';
+  env.OPENFGA_STORE_ID ??= '';
+  env.OPENFGA_AUTHORIZATION_MODEL_ID ??= '';
+  env.OPENFGA_MODEL_HASH ??= '';
+  env.AUTHLINK_OIDC_ISSUER ??= 'http://localhost:8085/auth/v1';
+  env.AUTHLINK_OIDC_CLIENT_ID ??= 'authlink-local';
+  env.AUTHLINK_OIDC_REDIRECT_URI ??= 'http://localhost:8787/api/v1/authlink/oidc/callback';
+  env.AUTHLINK_OIDC_SCOPES ??= 'openid profile email';
+  env.VITE_AUTHLINK_API ??= 'http://localhost:8787/api/v1';
+  env.RAUTHY_ENC_KEY_ACTIVE ??= 'authlink-local';
+  if (!validRauthyKeys(env.RAUTHY_ENC_KEYS)) {
+    env.RAUTHY_ENC_KEYS = `${env.RAUTHY_ENC_KEY_ACTIVE}/${randomRauthyKey()}`;
+  }
+  env.RAUTHY_ADMIN_PASSWORD ||= randomPassword();
+  env.RAUTHY_HQL_SECRET_RAFT ||= randomSecret();
+  env.RAUTHY_HQL_SECRET_API ||= randomSecret();
+  writeFileSync(envPath, renderEnv(env), { mode: 0o600 });
+  try { chmodSync(envPath, 0o600); } catch {}
+  return env;
+}
+
+function tomlString(value) {
+  return JSON.stringify(String(value));
+}
+
+function ensureRauthyConfig(env) {
+  // Parent stays private on the host. The directly bind-mounted file itself must be
+  // world-readable because the official Rauthy image runs as a non-root UID.
+  mkdirSync(localRoot, { recursive: true, mode: 0o700 });
+  try { chmodSync(localRoot, 0o700); } catch {}
+  mkdirSync(rauthyRoot, { recursive: true, mode: 0o700 });
+  try { chmodSync(rauthyRoot, 0o700); } catch {}
+
+  const keys = env.RAUTHY_ENC_KEYS.split(/\r?\n|,/).filter(Boolean).map(tomlString).join(', ');
+  const config = `[bootstrap]\nadmin_email = "admin@authlink.local"\nbootstrap_dir = "/app/bootstrap"\n\n[cluster]\nnode_id = 1\nnodes = ["1 localhost:8100 localhost:8200"]\nsecret_raft = ${tomlString(env.RAUTHY_HQL_SECRET_RAFT)}\nsecret_api = ${tomlString(env.RAUTHY_HQL_SECRET_API)}\ndata_dir = "/app/data"\n\n[email]\nsmtp_url = "localhost"\nsmtp_username = "authlink-local"\nsmtp_password = "authlink-local"\nsmtp_from = "AuthLink Local <authlink@localhost>"\n\n[encryption]\nkeys = [${keys}]\nkey_active = ${tomlString(env.RAUTHY_ENC_KEY_ACTIVE)}\n\n[events]\nemail = "admin@authlink.local"\n\n[server]\nscheme = "http"\npub_url = "localhost:8085"\nproxy_mode = false\n\n[webauthn]\nrp_id = "localhost"\nrp_origin = "http://localhost:8085"\n`;
+  writeFileSync(rauthyConfigPath, config, { mode: 0o644 });
+  try { chmodSync(rauthyConfigPath, 0o644); } catch {}
+}
+
+function ensureRauthyBootstrap(env) {
+  mkdirSync(rauthyBootstrapDir, { recursive: true, mode: 0o755 });
+  try { chmodSync(rauthyBootstrapDir, 0o755); } catch {}
+
+  rmSync(join(rauthyBootstrapDir, 'users.json'), { force: true });
+
+  const clients = [{
+    id: env.AUTHLINK_OIDC_CLIENT_ID,
+    name: 'AuthLink Local',
+    redirect_uris: [env.AUTHLINK_OIDC_REDIRECT_URI],
+    enabled: true,
+    flows_enabled: ['authorization_code','refresh_token'],
+    access_token_alg: 'EdDSA',
+    id_token_alg: 'EdDSA',
+    auth_code_lifetime: 60,
+    access_token_lifetime: 3600,
+    scopes: ['openid','profile','email'],
+    default_scopes: ['openid','profile','email'],
+    force_mfa: false,
+  }];
+
+  const clientsPath = join(rauthyBootstrapDir,'clients.json');
+  writeFileSync(clientsPath, `${JSON.stringify(clients,null,2)}\n`, { mode: 0o644 });
+  try { chmodSync(clientsPath, 0o644); } catch {}
+}
+
+function run(command, args, options = {}) {
+  const stdio = options.capture
+    ? ['ignore','pipe','pipe']
+    : options.input !== undefined
+      ? ['pipe','inherit','inherit']
+      : 'inherit';
+  const result = spawnSync(command, args, {
+    cwd: root,
+    stdio,
+    encoding: 'utf8',
+    env: options.env ?? process.env,
+    input: options.input,
+    shell: false,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    const details = options.capture ? `\n${result.stderr || result.stdout || ''}` : '';
+    throw new Error(`${command} ${args.join(' ')} failed with code ${result.status}${details}`);
+  }
+  return result.stdout ?? '';
+}
+
+function composeArgs(...args) {
+  return ['compose','--env-file',envPath,'-f',composePath,...args];
+}
+
+async function waitFor(url, validate = () => true, timeoutMs = 120_000) {
+  const started = Date.now();
+  let lastError;
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const response = await fetch(url, { cache: 'no-store' });
+      if (response.ok) {
+        const text = await response.text();
+        let body = text;
+        try { body = JSON.parse(text); } catch {}
+        if (validate(body, response)) return body;
+      }
+    } catch (error) { lastError = error; }
+    await new Promise(resolve => setTimeout(resolve, 1500));
+  }
+  throw new Error(`Timed out waiting for ${url}${lastError ? `: ${lastError.message}` : ''}`);
+}
+
+async function jsonRequest(url, init) {
+  const response = await fetch(url, {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+  });
+  const text = await response.text();
+  let body = text;
+  try { body = JSON.parse(text); } catch {}
+  if (!response.ok) throw new Error(`${init?.method ?? 'GET'} ${url} -> ${response.status}: ${text}`);
+  return body;
+}
+
+async function bootstrapOpenFga(env) {
+  const base = env.OPENFGA_API_URL.replace(/\/$/, '');
+  await waitFor(`${base}/healthz`, body => body?.status === 'SERVING');
+
+  let storeId = env.OPENFGA_STORE_ID;
+  if (storeId) {
+    try {
+      await jsonRequest(`${base}/stores/${storeId}`, { method: 'GET' });
+    } catch {
+      storeId = '';
+    }
+  }
+  if (!storeId) {
+    const store = await jsonRequest(`${base}/stores`, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'AuthLink Local' }),
+    });
+    storeId = store.id;
+    if (!storeId) throw new Error('OpenFGA did not return a store id');
+  }
+
+  const modelText = readFileSync(modelPath, 'utf8');
+  const modelHash = createHash('sha256').update(modelText).digest('hex');
+  let modelId = env.OPENFGA_AUTHORIZATION_MODEL_ID;
+  if (!modelId || env.OPENFGA_MODEL_HASH !== modelHash) {
+    const model = JSON.parse(modelText);
+    const created = await jsonRequest(`${base}/stores/${storeId}/authorization-models`, {
+      method: 'POST',
+      body: JSON.stringify(model),
+    });
+    modelId = created.authorization_model_id;
+    if (!modelId) throw new Error('OpenFGA did not return authorization_model_id');
+  }
+
+  env.OPENFGA_STORE_ID = storeId;
+  env.OPENFGA_AUTHORIZATION_MODEL_ID = modelId;
+  env.OPENFGA_MODEL_HASH = modelHash;
+  writeFileSync(envPath, renderEnv(env), { mode: 0o600 });
+  try { chmodSync(envPath, 0o600); } catch {}
+  console.log(`OpenFGA ready: store=${storeId} model=${modelId}`);
+}
+
+function applyMigrations() {
+  const files = readdirSync(migrationsDir).filter(name => name.endsWith('.sql')).sort();
+  for (const name of files) {
+    const sql = readFileSync(join(migrationsDir, name), 'utf8');
+    console.log(`Applying ${name}`);
+    run('docker', composeArgs('exec','-T','postgres','psql','-v','ON_ERROR_STOP=1','-U','authlink','-d','authlink'), { input: sql });
+  }
+}
+
+async function verifyRauthy() {
+  const metadata = await waitFor(
+    'http://localhost:8085/auth/v1/.well-known/openid-configuration',
+    body => body?.issuer && Array.isArray(body?.code_challenge_methods_supported) && body.code_challenge_methods_supported.includes('S256'),
+    180_000,
+  );
+  console.log(`Rauthy OIDC ready: ${metadata.issuer}`);
+}
+
+async function main() {
+  const env = ensureEnv();
+  ensureRauthyConfig(env);
+  ensureRauthyBootstrap(env);
+  console.log(`Local environment ready: ${envPath}`);
+  console.log(`Local Rauthy config ready: ${rauthyConfigPath}`);
+  console.log(`Local Rauthy bootstrap ready: ${rauthyBootstrapDir}`);
+  if (mode === 'env') return;
+
+  run('docker', ['compose','version']);
+  run('docker', composeArgs('up','-d','postgres','openfga-migrate','openfga','rauthy'));
+  await bootstrapOpenFga(env);
+  applyMigrations();
+  await verifyRauthy();
+
+  console.log('\nAUTHLINK LOCAL READY');
+  console.log('Web:       http://localhost:5173');
+  console.log('Gateway:   http://localhost:8787/api/v1/health');
+  console.log('Rauthy:    http://localhost:8085/auth/v1/admin');
+  console.log('OpenFGA:   http://localhost:3000/playground');
+  console.log('Admin:     admin@authlink.local');
+  console.log(`Password:  ${env.RAUTHY_ADMIN_PASSWORD}`);
+  console.log('\nRun: node scripts/dev-local.mjs');
+}
+
+main().catch(error => {
+  console.error(`\nAuthLink bootstrap failed: ${error.stack || error.message || error}`);
+  process.exitCode = 1;
+});
