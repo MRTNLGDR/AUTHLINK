@@ -39,12 +39,12 @@ call npm install
 if errorlevel 1 goto :fail
 
 echo.
-echo [2/3] Preparando Postgres, OpenFGA, Rauthy, modelo e migrations...
+echo [2/3] Preparando Postgres, OpenFGA, Rauthy, Vault keys, modelo e migrations...
 node scripts\bootstrap-local.mjs all
 if errorlevel 1 goto :fail
 
 echo.
-echo [3/3] Iniciando Gateway Rust e interface AuthLink...
+echo [3/3] Iniciando Gateway Rust, Vault Rust e interface AuthLink...
 node scripts\dev-local.mjs
 if errorlevel 1 goto :fail
 

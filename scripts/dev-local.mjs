@@ -22,7 +22,21 @@ if (!existsSync(envPath)) {
 }
 
 const localEnv = parseEnv(readFileSync(envPath,'utf8'));
-const childEnv = { ...process.env, ...localEnv, RUST_LOG: process.env.RUST_LOG ?? 'authlink_gateway=info,tower_http=info' };
+for (const required of [
+  'DATABASE_URL','OPENFGA_API_URL','OPENFGA_STORE_ID','OPENFGA_AUTHORIZATION_MODEL_ID',
+  'AUTHLINK_VAULT_KEYS','AUTHLINK_VAULT_ACTIVE_KEY_VERSION'
+]) {
+  if (!localEnv[required]) {
+    console.error(`Missing ${required} in .env.local. Run: node scripts/bootstrap-local.mjs all`);
+    process.exit(1);
+  }
+}
+
+const childEnv = {
+  ...process.env,
+  ...localEnv,
+  RUST_LOG: process.env.RUST_LOG ?? 'authlink_gateway=info,authlink_vault_service=info,tower_http=info'
+};
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const cargo = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
 const children = [];
@@ -63,12 +77,14 @@ function shutdown(code=0) {
 process.on('SIGINT',()=>shutdown(0));
 process.on('SIGTERM',()=>shutdown(0));
 
-console.log('Starting AuthLink Gateway + Web…');
+console.log('Starting AuthLink Gateway + Vault + Web…');
 console.log('Web:     http://localhost:5173');
 console.log('Gateway: http://localhost:8787/api/v1/health');
+console.log('Vault:   http://localhost:8788/api/v1/health');
 console.log('Press Ctrl+C to stop app processes. Infra remains running.');
 
 start('gateway',cargo,['run','-p','authlink-gateway']);
+start('vault',cargo,['run','-p','authlink-vault-service']);
 start('web',npm,['run','dev','-w','@authlink/web','--','--host','0.0.0.0']);
 
 setTimeout(()=>openBrowser('http://localhost:5173'),5000).unref();

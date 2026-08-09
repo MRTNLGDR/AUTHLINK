@@ -28,7 +28,10 @@ web:
     npm run dev -w @authlink/web
 
 gateway:
-    set -a && source .env.local && set +a && cargo run -p authlink-gateway
+    node scripts/run-local-command.mjs cargo run -p authlink-gateway
+
+vault:
+    node scripts/run-local-command.mjs cargo run -p authlink-vault-service
 
 dev:
     node scripts/dev-local.mjs
@@ -44,13 +47,13 @@ build-web:
     npm run build -w @authlink/web
 
 check-rust:
-    cargo check -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-store -p authlink-gateway
+    cargo check -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-store -p authlink-vault -p authlink-gateway -p authlink-vault-service
 
 check:
     npm run check
-    cargo check -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-store -p authlink-gateway
+    cargo check -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-store -p authlink-vault -p authlink-gateway -p authlink-vault-service
 
 test:
     npm run check
     npm run build
-    cargo test -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-gateway
+    cargo test -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-vault -p authlink-gateway -p authlink-vault-service

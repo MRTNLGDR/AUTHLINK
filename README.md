@@ -15,14 +15,22 @@ RUN_AUTHLINK.bat
 O launcher:
 
 1. instala as dependências web;
-2. gera `.env.local` com chaves **somente locais**;
+2. gera `.env.local` com chaves **somente locais**, incluindo o key ring versionado do Vault;
 3. sobe PostgreSQL 17, OpenFGA e Rauthy;
 4. cria o store/model ReBAC do AuthLink;
-5. aplica todas as migrations;
+5. aplica todas as migrations, inclusive envelopes criptografados do Vault;
 6. valida OIDC Discovery + PKCE S256;
-7. inicia Gateway Rust + PWA e abre `http://localhost:5173`.
+7. inicia **Gateway Rust + Vault Rust + PWA** e abre `http://localhost:5173`.
 
-A senha admin local do Rauthy é aleatória e é mostrada pelo bootstrap. Ela fica somente no `.env.local`, que é ignorado pelo Git.
+A senha admin local do Rauthy e a master key local inicial do Vault são aleatórias. Elas ficam somente no `.env.local`, que é ignorado pelo Git. O bootstrap preserva um key ring válido existente, portanto reiniciar o ambiente não troca silenciosamente a chave que protege itens já gravados.
+
+Serviços locais:
+
+- Web: `http://localhost:5173`
+- Gateway: `http://localhost:8787/api/v1/health`
+- Vault: `http://localhost:8788/api/v1/health`
+- Rauthy: `http://localhost:8085/auth/v1/admin`
+- OpenFGA Playground: `http://localhost:3000/playground`
 
 ### macOS/Linux
 
@@ -34,8 +42,8 @@ chmod +x RUN_AUTHLINK.sh
 ### Comandos manuais
 
 ```bash
-node scripts/bootstrap-local.mjs all   # infraestrutura + modelo + migrations
-node scripts/dev-local.mjs             # Gateway + Web
+node scripts/bootstrap-local.mjs all   # Postgres + OpenFGA + Rauthy + modelo + migrations + keys locais
+node scripts/dev-local.mjs             # Gateway + Vault + Web
 ```
 
 Com `just`:
@@ -44,6 +52,7 @@ Com `just`:
 just bootstrap
 just infra-up
 just dev
+just vault       # somente o serviço Vault, usando .env.local
 ```
 
 ## O que já está implementado no código
@@ -62,8 +71,13 @@ just dev
 - OpenFGA ReBAC;
 - provisioning de ownership sem PII: `user:<uuid> owner identity:<uuid>`;
 - operações Guardian protegidas por sessão + relação OpenFGA;
+- **Vault criptográfico Rust isolado** com XChaCha20-Poly1305;
+- DEK aleatória por item, master-key ring versionado e rotação por rewrap da DEK;
+- AAD do Vault vinculado a tenant + identidade + item + finalidade;
+- PostgreSQL do Vault guarda somente envelopes criptografados, não plaintext;
+- Vault reutiliza a sessão AuthLink e exige `identity.can_read/can_manage` no OpenFGA;
 - migrations e testes reais em PostgreSQL no CI;
-- smoke test do runtime local Postgres/OpenFGA/Rauthy.
+- smoke test do runtime local Postgres/OpenFGA/Rauthy/PKCE e inicialização do Vault com chave gerada localmente.
 
 ## Estrutura
 
@@ -75,9 +89,11 @@ crates/authlink-guardian/    risk engine
 crates/authlink-idp/         OIDC/PKCE adapter
 crates/authlink-policy/      OpenFGA adapter
 crates/authlink-store/       SQLx/PostgreSQL
-services/gateway/            API /api/v1
+crates/authlink-vault/       envelope encryption / key ring
+services/gateway/            identidade, sessão e API /api/v1
+services/vault/              serviço isolado do cofre criptográfico
 migrations/                  schema versionado
-docs/spec-v3/                documentação unificada
+docs/spec-v3/                documentação e security models
 docs/ui-approved/            manifesto das telas aprovadas
 infra/openfga/               modelo ReBAC
 infra/rauthy/bootstrap/      cliente OIDC local
@@ -87,12 +103,15 @@ scripts/                     bootstrap e runtime
 
 ## Segurança de produção
 
-`AUTHLINK_ENV=production` é fail-closed: o Gateway recusa iniciar sem PostgreSQL, OpenFGA e IdP OIDC alcançável. O perfil Docker deste README é **desenvolvimento local**, com HTTP localhost e configuração insegura de cookie somente para o Rauthy local. Produção exige TLS, secret manager/HSM/keystore, política de retenção, attestation nativa, threat model, RIPD/DPIA onde aplicável e releases assinados.
+`AUTHLINK_ENV=production` é fail-closed: o Gateway recusa iniciar sem PostgreSQL, OpenFGA e IdP OIDC alcançável. O Vault exige PostgreSQL, autorização e key ring válidos. O perfil Docker deste README é **desenvolvimento local**, com HTTP localhost e configuração insegura de cookie somente para o Rauthy local.
+
+As master keys locais do Vault entram por secret/env apenas para desenvolvimento/CI. Produção deve usar TLS e custódia apropriada via secret manager/KMS/HSM/keystore, além de política de retenção, attestation nativa, threat model, RIPD/DPIA onde aplicável e releases assinados.
 
 ## Documentação
 
 - `docs/spec-v3/AUTHLINK_DOCUMENTACAO_UNIFICADA_V3.md`
 - `docs/spec-v3/AUTHLINK_V3_README_ASSEMBLY.md`
+- `docs/spec-v3/VAULT_SECURITY_MODEL.md`
 - `docs/ui-approved/APPROVED_SCREENS.md`
 - `docs/legacy/AUTHLINK_SOCIAL_NETWORK_INVENTORY.md`
 

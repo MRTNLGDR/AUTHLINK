@@ -28,9 +28,10 @@ function parseEnv(text) {
 
 function renderEnv(values) {
   const groups = [
-    ['# Generated local-only AuthLink environment. DO NOT COMMIT.', ['AUTHLINK_ENV','AUTHLINK_GATEWAY_ADDR','AUTHLINK_WEB_URL','AUTHLINK_DEFAULT_TENANT_ID']],
+    ['# Generated local-only AuthLink environment. DO NOT COMMIT.', ['AUTHLINK_ENV','AUTHLINK_GATEWAY_ADDR','AUTHLINK_VAULT_ADDR','AUTHLINK_WEB_URL','AUTHLINK_DEFAULT_TENANT_ID']],
     ['# PostgreSQL authority', ['DATABASE_URL']],
     ['# OpenFGA ReBAC', ['AUTHLINK_POLICY_DEV_BYPASS','OPENFGA_API_URL','OPENFGA_STORE_ID','OPENFGA_AUTHORIZATION_MODEL_ID','OPENFGA_MODEL_HASH']],
+    ['# AuthLink Vault envelope-encryption key ring', ['AUTHLINK_VAULT_ACTIVE_KEY_VERSION','AUTHLINK_VAULT_KEYS']],
     ['# Rauthy / OIDC + PKCE', [
       'AUTHLINK_OIDC_ISSUER','AUTHLINK_OIDC_CLIENT_ID','AUTHLINK_OIDC_REDIRECT_URI','AUTHLINK_OIDC_SCOPES',
       'RAUTHY_ENC_KEYS','RAUTHY_ENC_KEY_ACTIVE','RAUTHY_ADMIN_PASSWORD','RAUTHY_HQL_SECRET_RAFT','RAUTHY_HQL_SECRET_API'
@@ -54,8 +55,19 @@ function randomSecret(bytes = 32) {
   return randomBytes(bytes).toString('base64url');
 }
 
-function randomRauthyKey() {
+function randomBase64Key() {
   return randomBytes(32).toString('base64');
+}
+
+function isStandardBase64Key(encoded) {
+  if (!encoded) return false;
+  try {
+    const decoded = Buffer.from(encoded, 'base64');
+    const normalized = decoded.toString('base64').replace(/=+$/,'');
+    return decoded.length === 32 && normalized === encoded.replace(/=+$/,'');
+  } catch {
+    return false;
+  }
 }
 
 function validRauthyKeys(value) {
@@ -65,21 +77,31 @@ function validRauthyKeys(value) {
     if (slash < 1) return false;
     const id = entry.slice(0, slash);
     const encoded = entry.slice(slash + 1);
-    if (!/^[a-zA-Z0-9:_-]{2,20}$/.test(id) || !encoded) return false;
-    try {
-      const decoded = Buffer.from(encoded, 'base64');
-      const normalized = decoded.toString('base64').replace(/=+$/,'');
-      return decoded.length === 32 && normalized === encoded.replace(/=+$/,'');
-    } catch {
-      return false;
-    }
+    return /^[a-zA-Z0-9:_-]{2,20}$/.test(id) && isStandardBase64Key(encoded);
   });
+}
+
+function validVaultKeys(value, activeVersion) {
+  if (!value || !/^\d+$/.test(String(activeVersion)) || Number(activeVersion) < 1) return false;
+  let activeFound = false;
+  const entries = value.split(/\r?\n|,/).filter(Boolean);
+  if (!entries.length) return false;
+  for (const entry of entries) {
+    const slash = entry.indexOf('/');
+    if (slash < 1) return false;
+    const version = entry.slice(0, slash);
+    const encoded = entry.slice(slash + 1);
+    if (!/^\d+$/.test(version) || Number(version) < 1 || !isStandardBase64Key(encoded)) return false;
+    if (version === String(activeVersion)) activeFound = true;
+  }
+  return activeFound;
 }
 
 function ensureEnv() {
   const env = existsSync(envPath) ? parseEnv(readFileSync(envPath, 'utf8')) : {};
   env.AUTHLINK_ENV ??= 'development';
   env.AUTHLINK_GATEWAY_ADDR ??= '127.0.0.1:8787';
+  env.AUTHLINK_VAULT_ADDR ??= '127.0.0.1:8788';
   env.AUTHLINK_WEB_URL ??= 'http://localhost:5173';
   env.AUTHLINK_DEFAULT_TENANT_ID ??= '00000000-0000-7000-8000-000000000001';
   env.DATABASE_URL ??= 'postgres://authlink:authlink_dev_only@127.0.0.1:54329/authlink';
@@ -88,6 +110,13 @@ function ensureEnv() {
   env.OPENFGA_STORE_ID ??= '';
   env.OPENFGA_AUTHORIZATION_MODEL_ID ??= '';
   env.OPENFGA_MODEL_HASH ??= '';
+
+  env.AUTHLINK_VAULT_ACTIVE_KEY_VERSION ??= '1';
+  if (!validVaultKeys(env.AUTHLINK_VAULT_KEYS, env.AUTHLINK_VAULT_ACTIVE_KEY_VERSION)) {
+    env.AUTHLINK_VAULT_ACTIVE_KEY_VERSION = '1';
+    env.AUTHLINK_VAULT_KEYS = `1/${randomBase64Key()}`;
+  }
+
   env.AUTHLINK_OIDC_ISSUER ??= 'http://localhost:8085/auth/v1';
   env.AUTHLINK_OIDC_CLIENT_ID ??= 'authlink-local';
   env.AUTHLINK_OIDC_REDIRECT_URI ??= 'http://localhost:8787/api/v1/authlink/oidc/callback';
@@ -95,7 +124,7 @@ function ensureEnv() {
   env.VITE_AUTHLINK_API ??= 'http://localhost:8787/api/v1';
   env.RAUTHY_ENC_KEY_ACTIVE ??= 'authlink-local';
   if (!validRauthyKeys(env.RAUTHY_ENC_KEYS)) {
-    env.RAUTHY_ENC_KEYS = `${env.RAUTHY_ENC_KEY_ACTIVE}/${randomRauthyKey()}`;
+    env.RAUTHY_ENC_KEYS = `${env.RAUTHY_ENC_KEY_ACTIVE}/${randomBase64Key()}`;
   }
   env.RAUTHY_ADMIN_PASSWORD ||= randomPassword();
   env.RAUTHY_HQL_SECRET_RAFT ||= randomSecret();
@@ -110,8 +139,6 @@ function tomlString(value) {
 }
 
 function ensureRauthyConfig(env) {
-  // Parent stays private on the host. The directly bind-mounted file itself must be
-  // world-readable because the official Rauthy image runs as a non-root UID.
   mkdirSync(localRoot, { recursive: true, mode: 0o700 });
   try { chmodSync(localRoot, 0o700); } catch {}
   mkdirSync(rauthyRoot, { recursive: true, mode: 0o700 });
@@ -283,6 +310,7 @@ async function main() {
   console.log('\nAUTHLINK LOCAL READY');
   console.log('Web:       http://localhost:5173');
   console.log('Gateway:   http://localhost:8787/api/v1/health');
+  console.log('Vault:     http://localhost:8788/api/v1/health');
   console.log('Rauthy:    http://localhost:8085/auth/v1/admin');
   console.log('OpenFGA:   http://localhost:3000/playground');
   console.log('Admin:     admin@authlink.local');

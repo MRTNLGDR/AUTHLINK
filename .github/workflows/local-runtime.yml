@@ -8,12 +8,16 @@ on:
 jobs:
   identity-stack:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
       - name: Bootstrap local AuthLink identity stack
         run: node scripts/bootstrap-local.mjs all
       - name: Verify generated secrets and OpenFGA IDs
@@ -21,8 +25,14 @@ jobs:
           grep -q '^OPENFGA_STORE_ID=.' .env.local
           grep -q '^OPENFGA_AUTHORIZATION_MODEL_ID=.' .env.local
           grep -q '^RAUTHY_ENC_KEYS=.' .env.local
+          grep -q '^AUTHLINK_VAULT_ACTIVE_KEY_VERSION=1$' .env.local
+          grep -q '^AUTHLINK_VAULT_KEYS=1/.' .env.local
       - name: Verify Rauthy client and PKCE authorization
         run: node scripts/verify-rauthy-client.mjs
+      - name: Build AuthLink Vault
+        run: cargo build -p authlink-vault-service
+      - name: Start and verify AuthLink Vault using generated dotenv
+        run: node scripts/verify-vault-runtime.mjs
       - name: Dump runtime logs on failure
         if: failure()
         run: docker compose --env-file .env.local -f infra/compose/docker-compose.dev.yml logs --no-color --tail=300
