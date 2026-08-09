@@ -3,6 +3,7 @@ use authlink_contracts::{
     GuardianSignals, OnboardingProgress, OnboardingStep, OnboardingStepId, StepStatus,
 };
 use authlink_guardian::evaluate;
+use authlink_policy::{OpenFgaClient, PolicyCheck, PolicyDecision};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -11,7 +12,7 @@ use axum::{
     Json, Router,
 };
 use serde::Serialize;
-use std::{net::SocketAddr, sync::{Arc, Mutex}};
+use std::{env, net::SocketAddr, sync::{Arc, Mutex}};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use uuid::Uuid;
 
@@ -25,6 +26,8 @@ struct CeremonyState {
 struct AppState {
     capabilities: Arc<Vec<Capability>>,
     ceremony: Arc<Mutex<CeremonyState>>,
+    policy: Option<OpenFgaClient>,
+    policy_dev_bypass: bool,
 }
 
 #[derive(Serialize)]
@@ -48,6 +51,13 @@ struct SessionSummary<'a> {
     online: bool,
 }
 
+#[derive(Serialize)]
+struct PolicyStatus {
+    configured: bool,
+    dev_bypass: bool,
+    mode: &'static str,
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -55,9 +65,25 @@ async fn main() {
         .json()
         .init();
 
+    let environment = env::var("AUTHLINK_ENV").unwrap_or_else(|_| "development".into());
+    let is_production = environment.eq_ignore_ascii_case("production");
+    let policy = OpenFgaClient::from_env().expect("valid OpenFGA configuration");
+    let policy_dev_bypass = !is_production
+        && env::var("AUTHLINK_POLICY_DEV_BYPASS")
+            .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
+            .unwrap_or(true);
+
+    if is_production && policy.is_none() {
+        panic!("OPENFGA_API_URL and OPENFGA_STORE_ID are mandatory in production");
+    }
+    if policy.is_none() && policy_dev_bypass {
+        tracing::warn!("OpenFGA is not configured; development authorization bypass is active");
+    }
+
     let capabilities = vec![
         cap("identity.sso", "SSO & Passkeys", "identity"),
         cap("identity.onboarding", "Cerimônia de identidade", "identity"),
+        cap("authorization.openfga", "OpenFGA ReBAC", "identity"),
         cap("security.guardian", "Guardian", "security"),
         cap("security.step_up", "Step-up authentication", "security"),
         cap("vault.credentials", "Vault de Senhas", "vault"),
@@ -78,6 +104,8 @@ async fn main() {
             id: Uuid::now_v7(),
             completed: 0,
         })),
+        policy,
+        policy_dev_bypass,
     };
 
     let app = Router::new()
@@ -89,14 +117,19 @@ async fn main() {
         .route("/api/v1/authlink/onboarding/reset", post(reset_onboarding))
         .route("/api/v1/authlink/security/overview", get(security_overview))
         .route("/api/v1/authlink/security/evaluate", post(evaluate_guardian))
+        .route("/api/v1/authlink/policy/status", get(policy_status))
+        .route("/api/v1/authlink/policy/check", post(policy_check))
         .route("/api/v1/capabilities/authlink", get(list_capabilities))
         .fallback(not_found)
         .with_state(state)
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http());
 
-    let addr: SocketAddr = "127.0.0.1:8787".parse().expect("valid gateway address");
-    tracing::info!(%addr, "AuthLink gateway listening");
+    let addr: SocketAddr = env::var("AUTHLINK_GATEWAY_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:8787".into())
+        .parse()
+        .expect("valid AUTHLINK_GATEWAY_ADDR");
+    tracing::info!(%addr, environment = %environment, "AuthLink gateway listening");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind gateway");
     axum::serve(listener, app).await.expect("serve gateway");
 }
@@ -280,6 +313,41 @@ async fn security_overview() -> Json<GuardianDecision> {
 
 async fn evaluate_guardian(Json(signals): Json<GuardianSignals>) -> Json<GuardianDecision> {
     Json(evaluate(&signals))
+}
+
+async fn policy_status(State(state): State<AppState>) -> Json<PolicyStatus> {
+    Json(PolicyStatus {
+        configured: state.policy.is_some(),
+        dev_bypass: state.policy_dev_bypass,
+        mode: if state.policy.is_some() { "openfga" } else if state.policy_dev_bypass { "development-bypass" } else { "unavailable" },
+    })
+}
+
+async fn policy_check(State(state): State<AppState>, Json(check): Json<PolicyCheck>) -> impl IntoResponse {
+    if let Some(policy) = &state.policy {
+        return match policy.check(&check).await {
+            Ok(decision) => (StatusCode::OK, Json(decision)).into_response(),
+            Err(error) => (
+                StatusCode::BAD_GATEWAY,
+                Json(serde_json::json!({ "error": "POLICY_UPSTREAM_FAILED", "developer_message": error.to_string() })),
+            )
+                .into_response(),
+        };
+    }
+
+    if state.policy_dev_bypass {
+        return (
+            StatusCode::OK,
+            Json(PolicyDecision { allowed: true, source: "development-bypass".into() }),
+        )
+            .into_response();
+    }
+
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({ "error": "POLICY_UNAVAILABLE" })),
+    )
+        .into_response()
 }
 
 fn internal_error(code: &str) -> axum::response::Response {
