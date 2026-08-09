@@ -4,6 +4,7 @@ members = [
   "crates/authlink-contracts",
   "crates/authlink-device",
   "crates/authlink-guardian",
+  "crates/authlink-passkey",
   "crates/authlink-policy",
   "crates/authlink-store",
   "crates/authlink-idp",
