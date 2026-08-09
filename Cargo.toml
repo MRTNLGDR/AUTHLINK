@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/authlink-contracts",
+  "crates/authlink-device",
   "crates/authlink-guardian",
   "crates/authlink-policy",
   "crates/authlink-store",
