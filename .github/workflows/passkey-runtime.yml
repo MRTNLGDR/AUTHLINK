@@ -1,0 +1,27 @@
+name: passkey-runtime
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  passkey-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - run: npm install
+      - run: node scripts/bootstrap-local.mjs all
+      - run: cargo build -p authlink-passkey-service
+      - run: node scripts/verify-passkey-runtime.mjs
+      - name: Dump infra logs on failure
+        if: failure()
+        run: docker compose --env-file .env.local -f infra/compose/docker-compose.dev.yml logs --no-color --tail=300
