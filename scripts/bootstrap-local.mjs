@@ -1,10 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const root = resolve(import.meta.dirname, '..');
 const envPath = join(root, '.env.local');
+const localRoot = join(root, '.authlink-local');
+const rauthyBootstrapDir = join(localRoot, 'rauthy-bootstrap');
 const composePath = join(root, 'infra', 'compose', 'docker-compose.dev.yml');
 const modelPath = join(root, 'infra', 'openfga', 'model.json');
 const migrationsDir = join(root, 'migrations');
@@ -67,6 +69,37 @@ function ensureEnv() {
   env.RAUTHY_ADMIN_PASSWORD ||= randomPassword();
   writeFileSync(envPath, renderEnv(env), { mode: 0o600 });
   return env;
+}
+
+function ensureRauthyBootstrap(env) {
+  mkdirSync(rauthyBootstrapDir, { recursive: true, mode: 0o700 });
+
+  const users = [{
+    email: 'admin@authlink.local',
+    password: { Plain: env.RAUTHY_ADMIN_PASSWORD },
+    roles: ['rauthy_admin','admin','user'],
+    groups: ['admin'],
+    enabled: true,
+    email_verified: true,
+  }];
+
+  const clients = [{
+    id: env.AUTHLINK_OIDC_CLIENT_ID,
+    name: 'AuthLink Local',
+    redirect_uris: [env.AUTHLINK_OIDC_REDIRECT_URI],
+    enabled: true,
+    flows_enabled: ['authorization_code','refresh_token'],
+    access_token_alg: 'EdDSA',
+    id_token_alg: 'EdDSA',
+    auth_code_lifetime: 60,
+    access_token_lifetime: 3600,
+    scopes: ['openid','profile','email'],
+    default_scopes: ['openid','profile','email'],
+    force_mfa: false,
+  }];
+
+  writeFileSync(join(rauthyBootstrapDir,'users.json'), `${JSON.stringify(users,null,2)}\n`, { mode: 0o600 });
+  writeFileSync(join(rauthyBootstrapDir,'clients.json'), `${JSON.stringify(clients,null,2)}\n`, { mode: 0o600 });
 }
 
 function run(command, args, options = {}) {
@@ -186,7 +219,9 @@ async function verifyRauthy() {
 
 async function main() {
   const env = ensureEnv();
+  ensureRauthyBootstrap(env);
   console.log(`Local environment ready: ${envPath}`);
+  console.log(`Local Rauthy bootstrap ready: ${rauthyBootstrapDir}`);
   if (mode === 'env') return;
 
   run('docker', ['compose','version']);
