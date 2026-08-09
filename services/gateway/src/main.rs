@@ -60,6 +60,7 @@ struct ResolvedSession {
     subject: String,
     display_name: Option<String>,
     auth_strength: String,
+    trusted_device: bool,
 }
 
 #[derive(Clone)]
@@ -208,12 +209,13 @@ async fn main() {
     }
 
     let capabilities = vec![
-        cap("identity.sso", "SSO & Passkeys", "identity"),
+        cap("identity.sso", "SSO & credential assurance", "identity"),
         cap("identity.oidc-pkce", "OIDC Authorization Code + PKCE", "identity"),
         cap("identity.onboarding", "Cerimônia de identidade", "identity"),
         cap("authorization.openfga", "OpenFGA ReBAC", "identity"),
         cap("authorization.session-bound", "Session-bound authorization", "identity"),
         cap("persistence.postgres", "PostgreSQL authority", "platform"),
+        cap("security.device-possession", "Trusted device possession", "security"),
         cap("security.guardian", "Guardian", "security"),
         cap("security.step_up", "Step-up authentication", "security"),
         cap("vault.credentials", "Vault de Senhas", "vault"),
@@ -290,20 +292,20 @@ fn onboarding_template() -> Vec<(OnboardingStepId, &'static str, &'static str, b
     vec![
         (OnboardingStepId::Welcome, "Bem-vindo ao AuthLink", "Sua identidade universal começa neste dispositivo.", true, "identity.enroll"),
         (OnboardingStepId::Account, "Criar conta ou entrar", "Vincule seu AuthLink ID e escolha o método inicial de acesso.", true, "identity.account"),
-        (OnboardingStepId::DeviceIntegrity, "Integridade do dispositivo", "Validamos postura, integridade e sinais do dispositivo.", true, "device.trust"),
+        (OnboardingStepId::DeviceIntegrity, "Prova deste dispositivo", "Trusted Device usa uma prova criptográfica separada da simples progressão desta cerimônia.", true, "device.trust"),
         (OnboardingStepId::FaceCapture, "Captura facial", "Mapeamento facial para proofing e referência PERZON autorizada.", true, "biometric.enroll"),
         (OnboardingStepId::Liveness, "Prova de vida", "PAD/liveness confirma presença real sem manter vídeo bruto por padrão.", true, "biometric.liveness"),
         (OnboardingStepId::Document, "Documento oficial", "OCR e validação documental quando a finalidade exigir.", false, "identity.document"),
         (OnboardingStepId::IdentityMatch, "Correspondência de identidade", "Combinamos evidências e elevamos revisão quando o risco pede.", true, "identity.match"),
         (OnboardingStepId::Consent, "Consentimentos", "Você escolhe finalidade, escopo, retenção e uso de cada dado sensível.", true, "consent.grant"),
-        (OnboardingStepId::Passkey, "Cadastrar passkey", "A passkey protegida pelo sistema operacional vira o fator principal.", true, "credential.passkey"),
+        (OnboardingStepId::Passkey, "Passkey / WebAuthn", "Reservado para assertion WebAuthn comprovada; MFA genérico do IdP não é promovido a passkey.", false, "credential.passkey"),
         (OnboardingStepId::SecondFactor, "Segundo fator", "Adicione security key ou método alternativo de recuperação forte.", false, "credential.second-factor"),
         (OnboardingStepId::Recovery, "Recuperação", "Gere códigos e configure contatos confiáveis sem criar backdoor.", true, "identity.recovery"),
         (OnboardingStepId::VaultSetup, "Configurar Vault", "Crie o cofre local e a hierarquia de chaves para credenciais e mídia.", true, "vault.bootstrap"),
         (OnboardingStepId::SovereignIdentity, "Identidade soberana", "Revise credenciais, dispositivos, scopes e trust score.", true, "identity.activate"),
         (OnboardingStepId::AvatarOptIn, "Referência para avatar PEZON", "Opcional: autorize uma referência separada para seu gêmeo digital.", false, "avatar.reference"),
         (OnboardingStepId::AuditProof, "Prova e auditoria", "Registramos o resultado mínimo da cerimônia e a trilha de consentimento.", true, "audit.write"),
-        (OnboardingStepId::Complete, "Acesso liberado", "Sua identidade está pronta. O AuthLink abre diretamente no Feed.", true, "session.activate"),
+        (OnboardingStepId::Complete, "Acesso liberado", "A cerimônia terminou; assurance de sessão continua dependente das evidências criptográficas reais.", true, "session.activate"),
     ]
 }
 
@@ -361,17 +363,17 @@ fn progress_from(state: &CeremonyState) -> OnboardingProgress {
         })
         .collect();
 
-    let passkey_index = 8;
-    let device_index = 2;
+    // Ceremony progression is workflow state, not authentication evidence.
+    // Auth strength and trusted-device state are derived from the canonical session instead.
     OnboardingProgress {
         ceremony_id: state.id,
         current_index: completed.min(total.saturating_sub(1)),
         completed,
         total,
         steps,
-        auth_strength: if completed > passkey_index { AuthStrength::PasskeyDevice } else { AuthStrength::Anonymous },
-        trusted_device: completed > device_index,
-        risk_score: if completed > device_index { 8 } else { 24 },
+        auth_strength: AuthStrength::Anonymous,
+        trusted_device: false,
+        risk_score: 24,
     }
 }
 
@@ -553,7 +555,7 @@ async fn session(State(state): State<AppState>, headers: HeaderMap) -> impl Into
                 subject: Some(session.subject),
                 display_name: session.display_name,
                 auth_strength: Some(session.auth_strength),
-                trusted_device: false,
+                trusted_device: session.trusted_device,
                 online: true,
             }),
         ).into_response(),
@@ -713,20 +715,27 @@ async fn reset_onboarding(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn security_overview(State(state): State<AppState>, headers: HeaderMap) -> axum::response::Response {
-    if let Err(response) = authorize_current_identity(&state, &headers, "can_read").await {
-        return response;
-    }
-    Json(evaluate(&GuardianSignals { strong_auth_credit: 6, ..GuardianSignals::default() })).into_response()
+    let session = match authorize_current_identity(&state, &headers, "can_read").await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
+    Json(evaluate(&GuardianSignals {
+        strong_auth_credit: if session.trusted_device { 6 } else { 0 },
+        ..GuardianSignals::default()
+    })).into_response()
 }
 
 async fn evaluate_guardian(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(signals): Json<GuardianSignals>,
+    Json(mut signals): Json<GuardianSignals>,
 ) -> axum::response::Response {
-    if let Err(response) = authorize_current_identity(&state, &headers, "can_manage").await {
-        return response;
-    }
+    let session = match authorize_current_identity(&state, &headers, "can_manage").await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
+    // Authentication strength is a server-side fact. Never trust client-provided credit.
+    signals.strong_auth_credit = if session.trusted_device { 6 } else { 0 };
     let decision = evaluate(&signals);
     if let Some(store) = &state.store {
         let correlation_id = Uuid::now_v7();
@@ -830,6 +839,7 @@ async fn resolve_session(state: &AppState, headers: &HeaderMap) -> Result<Resolv
                 subject: session.subject,
                 display_name: session.display_name,
                 auth_strength: session.auth_strength,
+                trusted_device: session.trusted_device_id.is_some(),
             }),
             Ok(None) => Err(unauthenticated_session()),
             Err(error) => Err((
@@ -848,6 +858,7 @@ async fn resolve_session(state: &AppState, headers: &HeaderMap) -> Result<Resolv
             subject: session.subject.clone(),
             display_name: session.display_name.clone(),
             auth_strength: session.auth_strength.clone(),
+            trusted_device: false,
         }),
         None => Err(unauthenticated_session()),
     }
