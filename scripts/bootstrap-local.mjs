@@ -70,14 +70,20 @@ function ensureEnv() {
 }
 
 function run(command, args, options = {}) {
+  const stdio = options.capture
+    ? ['ignore','pipe','pipe']
+    : options.input !== undefined
+      ? ['pipe','inherit','inherit']
+      : 'inherit';
   const result = spawnSync(command, args, {
     cwd: root,
-    stdio: options.capture ? ['ignore','pipe','pipe'] : 'inherit',
+    stdio,
     encoding: 'utf8',
     env: options.env ?? process.env,
     input: options.input,
     shell: false,
   });
+  if (result.error) throw result.error;
   if (result.status !== 0) {
     const details = options.capture ? `\n${result.stderr || result.stdout || ''}` : '';
     throw new Error(`${command} ${args.join(' ')} failed with code ${result.status}${details}`);
@@ -85,7 +91,7 @@ function run(command, args, options = {}) {
   return result.stdout ?? '';
 }
 
-function composeArgs(env, ...args) {
+function composeArgs(...args) {
   return ['compose','--env-file',envPath,'-f',composePath,...args];
 }
 
@@ -160,12 +166,12 @@ async function bootstrapOpenFga(env) {
   console.log(`OpenFGA ready: store=${storeId} model=${modelId}`);
 }
 
-function applyMigrations(env) {
+function applyMigrations() {
   const files = readdirSync(migrationsDir).filter(name => name.endsWith('.sql')).sort();
   for (const name of files) {
     const sql = readFileSync(join(migrationsDir, name), 'utf8');
     console.log(`Applying ${name}`);
-    run('docker', composeArgs(env, 'exec','-T','postgres','psql','-v','ON_ERROR_STOP=1','-U','authlink','-d','authlink'), { input: sql });
+    run('docker', composeArgs('exec','-T','postgres','psql','-v','ON_ERROR_STOP=1','-U','authlink','-d','authlink'), { input: sql });
   }
 }
 
@@ -184,9 +190,9 @@ async function main() {
   if (mode === 'env') return;
 
   run('docker', ['compose','version']);
-  run('docker', composeArgs(env, 'up','-d','postgres','openfga-migrate','openfga','rauthy'));
+  run('docker', composeArgs('up','-d','postgres','openfga-migrate','openfga','rauthy'));
   await bootstrapOpenFga(env);
-  applyMigrations(env);
+  applyMigrations();
   await verifyRauthy();
 
   console.log('\nAUTHLINK LOCAL READY');
