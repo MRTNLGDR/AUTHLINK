@@ -1,0 +1,13 @@
+{
+  "name": "@authlink/webauthn-verifier",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.mjs",
+    "check": "node --check index.mjs"
+  },
+  "dependencies": {
+    "@simplewebauthn/server": "13.3.2"
+  }
+}
