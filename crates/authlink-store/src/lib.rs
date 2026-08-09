@@ -14,6 +14,8 @@ pub struct CeremonyRecord {
 pub enum StoreError {
     #[error("database error: {0}")]
     Sqlx(#[from] sqlx::Error),
+    #[error("json serialization error: {0}")]
+    Json(#[from] serde_json::Error),
     #[error("invalid stored integer value for {0}")]
     InvalidInteger(&'static str),
 }
