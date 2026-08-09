@@ -29,23 +29,10 @@ jobs:
           grep -q '^AUTHLINK_VAULT_KEYS=1/.' .env.local
       - name: Verify Rauthy client and PKCE authorization
         run: node scripts/verify-rauthy-client.mjs
-      - name: Build and start AuthLink Vault with generated key ring
-        run: |
-          set -a
-          source .env.local
-          set +a
-          cargo build -p authlink-vault-service
-          ./target/debug/authlink-vault-service >/tmp/authlink-vault.log 2>&1 &
-          echo $! >/tmp/authlink-vault.pid
-          for i in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:8788/api/v1/health >/dev/null; then break; fi
-            sleep 1
-          done
-          curl --fail --silent http://127.0.0.1:8788/api/v1/health | grep authlink-vault
-          curl --fail --silent http://127.0.0.1:8788/api/v1/authlink/vault/status | grep XCHACHA20-POLY1305
-          kill "$(cat /tmp/authlink-vault.pid)"
+      - name: Build AuthLink Vault
+        run: cargo build -p authlink-vault-service
+      - name: Start and verify AuthLink Vault using generated dotenv
+        run: node scripts/verify-vault-runtime.mjs
       - name: Dump runtime logs on failure
         if: failure()
-        run: |
-          test ! -f /tmp/authlink-vault.log || cat /tmp/authlink-vault.log
-          docker compose --env-file .env.local -f infra/compose/docker-compose.dev.yml logs --no-color --tail=300
+        run: docker compose --env-file .env.local -f infra/compose/docker-compose.dev.yml logs --no-color --tail=300
