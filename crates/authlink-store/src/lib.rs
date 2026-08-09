@@ -1,4 +1,5 @@
 use authlink_contracts::{GuardianDecision, GuardianSignals};
+use authlink_vault::EncryptedEnvelope;
 use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use std::env;
 use thiserror::Error;
@@ -20,6 +21,25 @@ pub struct SessionRecord {
     pub auth_strength: String,
     pub purpose: String,
     pub audience: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct VaultItemRecord {
+    pub id: Uuid,
+    pub tenant_id: Uuid,
+    pub identity_id: Uuid,
+    pub kind: String,
+    pub purpose: String,
+    pub key_version: u32,
+    pub envelope: EncryptedEnvelope,
+}
+
+#[derive(Debug, Clone)]
+pub struct VaultItemMetadata {
+    pub id: Uuid,
+    pub kind: String,
+    pub purpose: String,
+    pub key_version: u32,
 }
 
 #[derive(Debug, Error)]
@@ -215,6 +235,151 @@ impl AuthlinkStore {
             "update authlink.session set state = 'revoked', revoked_at = now() where id = $1 and state = 'active'",
         )
         .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn create_vault_item(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        kind: &str,
+        purpose: &str,
+        envelope: &EncryptedEnvelope,
+    ) -> Result<(), StoreError> {
+        let key_version = i32::try_from(envelope.key_version).map_err(|_| StoreError::InvalidInteger("key_version"))?;
+        sqlx::query(
+            r#"
+            insert into authlink.vault_item
+              (id, tenant_id, identity_id, kind, purpose, key_version, envelope)
+            values ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .bind(kind)
+        .bind(purpose)
+        .bind(key_version)
+        .bind(serde_json::to_value(envelope)?)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn load_vault_item(
+        &self,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        id: Uuid,
+    ) -> Result<Option<VaultItemRecord>, StoreError> {
+        let row = sqlx::query(
+            r#"
+            select id, tenant_id, identity_id, kind, purpose, key_version, envelope
+              from authlink.vault_item
+             where id = $1 and tenant_id = $2 and identity_id = $3 and state = 'active'
+            "#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        row.map(|row| {
+            let key_version: i32 = row.try_get("key_version")?;
+            let envelope_value: serde_json::Value = row.try_get("envelope")?;
+            Ok(VaultItemRecord {
+                id: row.try_get("id")?,
+                tenant_id: row.try_get("tenant_id")?,
+                identity_id: row.try_get("identity_id")?,
+                kind: row.try_get("kind")?,
+                purpose: row.try_get("purpose")?,
+                key_version: u32::try_from(key_version).map_err(|_| StoreError::InvalidInteger("key_version"))?,
+                envelope: serde_json::from_value(envelope_value)?,
+            })
+        }).transpose()
+    }
+
+    pub async fn list_vault_items(
+        &self,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+    ) -> Result<Vec<VaultItemMetadata>, StoreError> {
+        let rows = sqlx::query(
+            r#"
+            select id, kind, purpose, key_version
+              from authlink.vault_item
+             where tenant_id = $1 and identity_id = $2 and state = 'active'
+             order by created_at desc
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(identity_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter().map(|row| {
+            let key_version: i32 = row.try_get("key_version")?;
+            Ok(VaultItemMetadata {
+                id: row.try_get("id")?,
+                kind: row.try_get("kind")?,
+                purpose: row.try_get("purpose")?,
+                key_version: u32::try_from(key_version).map_err(|_| StoreError::InvalidInteger("key_version"))?,
+            })
+        }).collect()
+    }
+
+    pub async fn update_vault_envelope(
+        &self,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        id: Uuid,
+        expected_key_version: u32,
+        envelope: &EncryptedEnvelope,
+    ) -> Result<bool, StoreError> {
+        let expected = i32::try_from(expected_key_version).map_err(|_| StoreError::InvalidInteger("expected_key_version"))?;
+        let next = i32::try_from(envelope.key_version).map_err(|_| StoreError::InvalidInteger("key_version"))?;
+        let result = sqlx::query(
+            r#"
+            update authlink.vault_item
+               set envelope = $5,
+                   key_version = $6,
+                   version = version + 1,
+                   updated_at = now()
+             where id = $1 and tenant_id = $2 and identity_id = $3
+               and state = 'active' and key_version = $4
+            "#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .bind(expected)
+        .bind(serde_json::to_value(envelope)?)
+        .bind(next)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn delete_vault_item(
+        &self,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        id: Uuid,
+    ) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            r#"
+            update authlink.vault_item
+               set state = 'deleted', deleted_at = now(), updated_at = now(), version = version + 1
+             where id = $1 and tenant_id = $2 and identity_id = $3 and state = 'active'
+            "#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(identity_id)
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
