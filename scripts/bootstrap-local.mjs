@@ -1,11 +1,13 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const root = resolve(import.meta.dirname, '..');
 const envPath = join(root, '.env.local');
 const localRoot = join(root, '.authlink-local');
+const rauthyRoot = join(localRoot, 'rauthy');
+const rauthyConfigPath = join(rauthyRoot, 'config.toml');
 const rauthyBootstrapDir = join(localRoot, 'rauthy-bootstrap');
 const composePath = join(root, 'infra', 'compose', 'docker-compose.dev.yml');
 const modelPath = join(root, 'infra', 'openfga', 'model.json');
@@ -29,7 +31,10 @@ function renderEnv(values) {
     ['# Generated local-only AuthLink environment. DO NOT COMMIT.', ['AUTHLINK_ENV','AUTHLINK_GATEWAY_ADDR','AUTHLINK_WEB_URL','AUTHLINK_DEFAULT_TENANT_ID']],
     ['# PostgreSQL authority', ['DATABASE_URL']],
     ['# OpenFGA ReBAC', ['AUTHLINK_POLICY_DEV_BYPASS','OPENFGA_API_URL','OPENFGA_STORE_ID','OPENFGA_AUTHORIZATION_MODEL_ID','OPENFGA_MODEL_HASH']],
-    ['# Rauthy / OIDC + PKCE', ['AUTHLINK_OIDC_ISSUER','AUTHLINK_OIDC_CLIENT_ID','AUTHLINK_OIDC_REDIRECT_URI','AUTHLINK_OIDC_SCOPES','RAUTHY_ENC_KEYS','RAUTHY_ENC_KEY_ACTIVE','RAUTHY_ADMIN_PASSWORD']],
+    ['# Rauthy / OIDC + PKCE', [
+      'AUTHLINK_OIDC_ISSUER','AUTHLINK_OIDC_CLIENT_ID','AUTHLINK_OIDC_REDIRECT_URI','AUTHLINK_OIDC_SCOPES',
+      'RAUTHY_ENC_KEYS','RAUTHY_ENC_KEY_ACTIVE','RAUTHY_ADMIN_PASSWORD','RAUTHY_HQL_SECRET_RAFT','RAUTHY_HQL_SECRET_API'
+    ]],
     ['# Web', ['VITE_AUTHLINK_API']],
   ];
   const lines = [];
@@ -45,25 +50,27 @@ function randomPassword() {
   return `AL-${randomBytes(18).toString('base64url')}-9a!`;
 }
 
+function randomSecret(bytes = 32) {
+  return randomBytes(bytes).toString('base64url');
+}
+
 function randomRauthyKey() {
-  // Rauthy v0.36 expects exactly 32 random bytes, then Standard Base64 encoding.
-  // 32 bytes encode to 44 text characters including padding; text length is not the key length.
+  // Rauthy v0.36: 32 random bytes encoded as Standard Base64.
   return randomBytes(32).toString('base64');
 }
 
 function validRauthyKeys(value) {
   if (!value) return false;
-  return value.split(',').every(entry => {
+  return value.split(/\r?\n|,/).filter(Boolean).every(entry => {
     const slash = entry.indexOf('/');
     if (slash < 1) return false;
     const id = entry.slice(0, slash);
     const encoded = entry.slice(slash + 1);
-    if (!id || id.length > 20 || !encoded) return false;
+    if (!/^[a-zA-Z0-9:_-]{2,20}$/.test(id) || !encoded) return false;
     try {
       const decoded = Buffer.from(encoded, 'base64');
       const normalized = decoded.toString('base64').replace(/=+$/,'');
-      const inputNormalized = encoded.replace(/=+$/,'');
-      return decoded.length === 32 && normalized === inputNormalized;
+      return decoded.length === 32 && normalized === encoded.replace(/=+$/,'');
     } catch {
       return false;
     }
@@ -92,21 +99,29 @@ function ensureEnv() {
     env.RAUTHY_ENC_KEYS = `${env.RAUTHY_ENC_KEY_ACTIVE}/${randomRauthyKey()}`;
   }
   env.RAUTHY_ADMIN_PASSWORD ||= randomPassword();
+  env.RAUTHY_HQL_SECRET_RAFT ||= randomSecret();
+  env.RAUTHY_HQL_SECRET_API ||= randomSecret();
   writeFileSync(envPath, renderEnv(env), { mode: 0o600 });
   return env;
+}
+
+function tomlString(value) {
+  return JSON.stringify(String(value));
+}
+
+function ensureRauthyConfig(env) {
+  mkdirSync(rauthyRoot, { recursive: true, mode: 0o700 });
+  const keys = env.RAUTHY_ENC_KEYS.split(/\r?\n|,/).filter(Boolean).map(tomlString).join(', ');
+  const config = `[bootstrap]\nadmin_email = "admin@authlink.local"\nbootstrap_dir = "/app/bootstrap"\n\n[cluster]\nnode_id = 1\nnodes = ["1 localhost:8100 localhost:8200"]\nsecret_raft = ${tomlString(env.RAUTHY_HQL_SECRET_RAFT)}\nsecret_api = ${tomlString(env.RAUTHY_HQL_SECRET_API)}\ndata_dir = "/app/data"\n\n[email]\nsmtp_url = "localhost"\nsmtp_username = "authlink-local"\nsmtp_password = "authlink-local"\nsmtp_from = "AuthLink Local <authlink@localhost>"\n\n[encryption]\nkeys = [${keys}]\nkey_active = ${tomlString(env.RAUTHY_ENC_KEY_ACTIVE)}\n\n[events]\nemail = "admin@authlink.local"\n\n[server]\nscheme = "http"\npub_url = "localhost:8085"\nproxy_mode = false\n\n[webauthn]\nrp_id = "localhost"\nrp_origin = "http://localhost:8085"\n`;
+  writeFileSync(rauthyConfigPath, config, { mode: 0o600 });
 }
 
 function ensureRauthyBootstrap(env) {
   mkdirSync(rauthyBootstrapDir, { recursive: true, mode: 0o700 });
 
-  const users = [{
-    email: 'admin@authlink.local',
-    password: { Plain: env.RAUTHY_ADMIN_PASSWORD },
-    roles: ['rauthy_admin','admin','user'],
-    groups: ['admin'],
-    enabled: true,
-    email_verified: true,
-  }];
+  // The built-in bootstrap creates the admin. Keep users.json absent so there is
+  // one authority for the initial admin and no version-specific password schema conflict.
+  rmSync(join(rauthyBootstrapDir, 'users.json'), { force: true });
 
   const clients = [{
     id: env.AUTHLINK_OIDC_CLIENT_ID,
@@ -123,7 +138,6 @@ function ensureRauthyBootstrap(env) {
     force_mfa: false,
   }];
 
-  writeFileSync(join(rauthyBootstrapDir,'users.json'), `${JSON.stringify(users,null,2)}\n`, { mode: 0o600 });
   writeFileSync(join(rauthyBootstrapDir,'clients.json'), `${JSON.stringify(clients,null,2)}\n`, { mode: 0o600 });
 }
 
@@ -244,8 +258,10 @@ async function verifyRauthy() {
 
 async function main() {
   const env = ensureEnv();
+  ensureRauthyConfig(env);
   ensureRauthyBootstrap(env);
   console.log(`Local environment ready: ${envPath}`);
+  console.log(`Local Rauthy config ready: ${rauthyConfigPath}`);
   console.log(`Local Rauthy bootstrap ready: ${rauthyBootstrapDir}`);
   if (mode === 'env') return;
 
