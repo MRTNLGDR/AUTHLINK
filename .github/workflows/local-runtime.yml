@@ -1,0 +1,28 @@
+name: local-runtime
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  identity-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bootstrap local AuthLink identity stack
+        run: node scripts/bootstrap-local.mjs all
+      - name: Verify generated secrets and OpenFGA IDs
+        run: |
+          grep -q '^OPENFGA_STORE_ID=.' .env.local
+          grep -q '^OPENFGA_AUTHORIZATION_MODEL_ID=.' .env.local
+          grep -q '^RAUTHY_ENC_KEYS=.' .env.local
+      - name: Verify Rauthy client and PKCE authorization
+        run: node scripts/verify-rauthy-client.mjs
+      - name: Dump runtime logs on failure
+        if: failure()
+        run: docker compose --env-file .env.local -f infra/compose/docker-compose.dev.yml logs --no-color --tail=300
