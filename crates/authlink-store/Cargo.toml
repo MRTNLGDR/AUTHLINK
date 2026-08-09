@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 authlink-contracts = { path = "../authlink-contracts" }
+authlink-vault = { path = "../authlink-vault" }
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
