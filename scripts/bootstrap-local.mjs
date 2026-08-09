@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync, rmSync, chmodSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -55,7 +55,6 @@ function randomSecret(bytes = 32) {
 }
 
 function randomRauthyKey() {
-  // Rauthy v0.36: 32 random bytes encoded as Standard Base64.
   return randomBytes(32).toString('base64');
 }
 
@@ -102,6 +101,7 @@ function ensureEnv() {
   env.RAUTHY_HQL_SECRET_RAFT ||= randomSecret();
   env.RAUTHY_HQL_SECRET_API ||= randomSecret();
   writeFileSync(envPath, renderEnv(env), { mode: 0o600 });
+  try { chmodSync(envPath, 0o600); } catch {}
   return env;
 }
 
@@ -110,17 +110,23 @@ function tomlString(value) {
 }
 
 function ensureRauthyConfig(env) {
+  // Parent stays private on the host. The directly bind-mounted file itself must be
+  // world-readable because the official Rauthy image runs as a non-root UID.
+  mkdirSync(localRoot, { recursive: true, mode: 0o700 });
+  try { chmodSync(localRoot, 0o700); } catch {}
   mkdirSync(rauthyRoot, { recursive: true, mode: 0o700 });
+  try { chmodSync(rauthyRoot, 0o700); } catch {}
+
   const keys = env.RAUTHY_ENC_KEYS.split(/\r?\n|,/).filter(Boolean).map(tomlString).join(', ');
   const config = `[bootstrap]\nadmin_email = "admin@authlink.local"\nbootstrap_dir = "/app/bootstrap"\n\n[cluster]\nnode_id = 1\nnodes = ["1 localhost:8100 localhost:8200"]\nsecret_raft = ${tomlString(env.RAUTHY_HQL_SECRET_RAFT)}\nsecret_api = ${tomlString(env.RAUTHY_HQL_SECRET_API)}\ndata_dir = "/app/data"\n\n[email]\nsmtp_url = "localhost"\nsmtp_username = "authlink-local"\nsmtp_password = "authlink-local"\nsmtp_from = "AuthLink Local <authlink@localhost>"\n\n[encryption]\nkeys = [${keys}]\nkey_active = ${tomlString(env.RAUTHY_ENC_KEY_ACTIVE)}\n\n[events]\nemail = "admin@authlink.local"\n\n[server]\nscheme = "http"\npub_url = "localhost:8085"\nproxy_mode = false\n\n[webauthn]\nrp_id = "localhost"\nrp_origin = "http://localhost:8085"\n`;
-  writeFileSync(rauthyConfigPath, config, { mode: 0o600 });
+  writeFileSync(rauthyConfigPath, config, { mode: 0o644 });
+  try { chmodSync(rauthyConfigPath, 0o644); } catch {}
 }
 
 function ensureRauthyBootstrap(env) {
-  mkdirSync(rauthyBootstrapDir, { recursive: true, mode: 0o700 });
+  mkdirSync(rauthyBootstrapDir, { recursive: true, mode: 0o755 });
+  try { chmodSync(rauthyBootstrapDir, 0o755); } catch {}
 
-  // The built-in bootstrap creates the admin. Keep users.json absent so there is
-  // one authority for the initial admin and no version-specific password schema conflict.
   rmSync(join(rauthyBootstrapDir, 'users.json'), { force: true });
 
   const clients = [{
@@ -138,7 +144,9 @@ function ensureRauthyBootstrap(env) {
     force_mfa: false,
   }];
 
-  writeFileSync(join(rauthyBootstrapDir,'clients.json'), `${JSON.stringify(clients,null,2)}\n`, { mode: 0o600 });
+  const clientsPath = join(rauthyBootstrapDir,'clients.json');
+  writeFileSync(clientsPath, `${JSON.stringify(clients,null,2)}\n`, { mode: 0o644 });
+  try { chmodSync(clientsPath, 0o644); } catch {}
 }
 
 function run(command, args, options = {}) {
@@ -235,6 +243,7 @@ async function bootstrapOpenFga(env) {
   env.OPENFGA_AUTHORIZATION_MODEL_ID = modelId;
   env.OPENFGA_MODEL_HASH = modelHash;
   writeFileSync(envPath, renderEnv(env), { mode: 0o600 });
+  try { chmodSync(envPath, 0o600); } catch {}
   console.log(`OpenFGA ready: store=${storeId} model=${modelId}`);
 }
 
