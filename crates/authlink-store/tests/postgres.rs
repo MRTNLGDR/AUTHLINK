@@ -1,5 +1,6 @@
 use authlink_contracts::{GuardianDecision, GuardianSignals, RiskLevel};
 use authlink_store::AuthlinkStore;
+use authlink_vault::{KeyRing, MasterKey, VaultBinding};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -55,6 +56,72 @@ async fn oidc_identity_and_session_are_persisted_and_revocable() {
 
     assert!(store.revoke_session(session_id).await.expect("revoke session"));
     assert!(store.load_active_session(session_id).await.expect("reload revoked session").is_none());
+}
+
+#[tokio::test]
+async fn vault_persists_ciphertext_only_and_rotates_wrapped_key() {
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required for integration test");
+    let store = AuthlinkStore::connect(&database_url).await.expect("connect PostgreSQL");
+    let tenant_id = Uuid::now_v7();
+    let subject = format!("vault-test:{}", Uuid::now_v7());
+    let identity_id = store
+        .upsert_oidc_identity(tenant_id, &subject, Some("Vault Test User"))
+        .await
+        .expect("create identity");
+    let item_id = Uuid::now_v7();
+    let purpose = "credential.store";
+    let binding = VaultBinding::new(tenant_id, identity_id, item_id, purpose);
+    let old_key = MasterKey::new([7; 32], 1);
+    let old_ring = KeyRing::new(1, [old_key]).expect("old key ring");
+    let plaintext = br#"{"username":"alice","password":"super-secret-password"}"#;
+    let envelope = old_ring.encrypt(&binding, plaintext).expect("encrypt vault payload");
+
+    store
+        .create_vault_item(item_id, tenant_id, identity_id, "credential", purpose, &envelope)
+        .await
+        .expect("persist encrypted envelope");
+
+    let raw_envelope: String = sqlx::query_scalar("select envelope::text from authlink.vault_item where id = $1")
+        .bind(item_id)
+        .fetch_one(store.pool())
+        .await
+        .expect("read raw persisted envelope");
+    assert!(!raw_envelope.contains("super-secret-password"));
+    assert!(!raw_envelope.contains("alice"));
+
+    let loaded = store
+        .load_vault_item(tenant_id, identity_id, item_id)
+        .await
+        .expect("load vault item")
+        .expect("vault item exists");
+    assert_eq!(old_ring.decrypt(&binding, &loaded.envelope).expect("decrypt").as_slice(), plaintext);
+
+    let wrong_identity = Uuid::now_v7();
+    assert!(store
+        .load_vault_item(tenant_id, wrong_identity, item_id)
+        .await
+        .expect("owner-scoped lookup")
+        .is_none());
+
+    let rotation_ring = KeyRing::new(2, [MasterKey::new([7; 32], 1), MasterKey::new([9; 32], 2)])
+        .expect("rotation ring");
+    let rotated = rotation_ring.rewrap_to_active(&binding, &loaded.envelope).expect("rewrap DEK");
+    assert_eq!(rotated.ciphertext_b64, loaded.envelope.ciphertext_b64);
+    assert!(store
+        .update_vault_envelope(tenant_id, identity_id, item_id, 1, &rotated)
+        .await
+        .expect("persist rewrap"));
+
+    let after_rotation = store
+        .load_vault_item(tenant_id, identity_id, item_id)
+        .await
+        .expect("reload rotated item")
+        .expect("rotated item exists");
+    assert_eq!(after_rotation.key_version, 2);
+    assert_eq!(rotation_ring.decrypt(&binding, &after_rotation.envelope).expect("decrypt rotated").as_slice(), plaintext);
+
+    assert!(store.delete_vault_item(tenant_id, identity_id, item_id).await.expect("soft delete vault item"));
+    assert!(store.load_vault_item(tenant_id, identity_id, item_id).await.expect("reload deleted item").is_none());
 }
 
 #[tokio::test]
