@@ -46,9 +46,9 @@ function randomPassword() {
 }
 
 function randomRauthyKey() {
-  // Rauthy expects the configured key value itself to be exactly 32 bytes.
-  // 24 random bytes encoded as base64url produce exactly 32 ASCII bytes.
-  return randomBytes(24).toString('base64url');
+  // Rauthy v0.36 expects exactly 32 random bytes, then Standard Base64 encoding.
+  // 32 bytes encode to 44 text characters including padding; text length is not the key length.
+  return randomBytes(32).toString('base64');
 }
 
 function validRauthyKeys(value) {
@@ -57,8 +57,16 @@ function validRauthyKeys(value) {
     const slash = entry.indexOf('/');
     if (slash < 1) return false;
     const id = entry.slice(0, slash);
-    const key = entry.slice(slash + 1);
-    return id.length > 0 && Buffer.byteLength(key, 'utf8') === 32;
+    const encoded = entry.slice(slash + 1);
+    if (!id || id.length > 20 || !encoded) return false;
+    try {
+      const decoded = Buffer.from(encoded, 'base64');
+      const normalized = decoded.toString('base64').replace(/=+$/,'');
+      const inputNormalized = encoded.replace(/=+$/,'');
+      return decoded.length === 32 && normalized === inputNormalized;
+    } catch {
+      return false;
+    }
   });
 }
 
