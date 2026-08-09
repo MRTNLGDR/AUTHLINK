@@ -10,3 +10,6 @@ serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "json"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
