@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/authlink-contracts",
+  "crates/authlink-guardian",
   "services/gateway",
   "apps/shell/src-tauri"
 ]
@@ -9,7 +10,7 @@ members = [
 [workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
