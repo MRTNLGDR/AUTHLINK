@@ -28,6 +28,36 @@ async fn ceremony_is_persisted_with_optimistic_concurrency() {
 }
 
 #[tokio::test]
+async fn oidc_identity_and_session_are_persisted_and_revocable() {
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required for integration test");
+    let store = AuthlinkStore::connect(&database_url).await.expect("connect PostgreSQL");
+    let tenant_id = Uuid::now_v7();
+    let subject = format!("oidc-test:{}", Uuid::now_v7());
+    let identity_id = store
+        .upsert_oidc_identity(tenant_id, &subject, Some("OIDC Test User"))
+        .await
+        .expect("upsert OIDC identity");
+    let session_id = Uuid::new_v4();
+
+    store
+        .create_session(session_id, tenant_id, identity_id, "authlink-web", "suite.access", "oidc+pkce", 3600)
+        .await
+        .expect("create opaque AuthLink session");
+
+    let session = store
+        .load_active_session(session_id)
+        .await
+        .expect("load active session")
+        .expect("session should be active");
+    assert_eq!(session.subject, subject);
+    assert_eq!(session.display_name.as_deref(), Some("OIDC Test User"));
+    assert_eq!(session.auth_strength, "oidc+pkce");
+
+    assert!(store.revoke_session(session_id).await.expect("revoke session"));
+    assert!(store.load_active_session(session_id).await.expect("reload revoked session").is_none());
+}
+
+#[tokio::test]
 async fn guardian_decision_is_append_only_recorded() {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required for integration test");
     let store = AuthlinkStore::connect(&database_url).await.expect("connect PostgreSQL");
