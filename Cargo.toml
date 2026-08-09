@@ -6,7 +6,9 @@ members = [
   "crates/authlink-policy",
   "crates/authlink-store",
   "crates/authlink-idp",
+  "crates/authlink-vault",
   "services/gateway",
+  "services/vault",
   "apps/shell/src-tauri"
 ]
 
