@@ -3,6 +3,7 @@ import { api, type Capability } from './api';
 import { Glyph, icons } from './icons';
 
 type Route = 'feed'|'chat'|'apps'|'match'|'profile'|'security'|'passwords'|'photos'|'accounts'|'privacy'|'alerts'|'backup'|'panic'|'devices'|'integrations';
+type SecondaryConfig = readonly [string,string,string];
 
 const NAV: Array<{id: Route; label: string; icon: string}> = [
   { id:'feed', label:'Feed', icon:icons.home }, { id:'chat', label:'Chat', icon:icons.chat },
@@ -72,8 +73,7 @@ const listData: Partial<Record<Route, Array<[string,string,string]>>> = {
  integrations:[['GitHub','Conectado','Sync'],['GitLab','Conectado','Sync'],['Supabase','Conectado','Online'],['Vercel','Conectado','Sync'],['Netlify','Não conectado','Conectar'],['MCP Servers','Conectado','Local'],['Local Providers','Conectado','Local'],['Cloud Providers','Conectado','Online'],['Modules','Conectado','Sync'],['Sequencer','Conectado','Sync'],['Notes Workspace','Conectado','Local'],['Workbench / Preview','Conectado','Local']]
 };
 
-function ListScreen({route,go}:{route:Route;go:(r:Route)=>void}){
- const config:any={
+const screenConfig: Partial<Record<Route, SecondaryConfig>> = {
  passwords:['Vault de','Senhas','Proteção inteligente e criptografada para credenciais, passkeys, 2FA e dados sensíveis.'],
  photos:['Cofre de','Fotos','Fotos e vídeos privados com criptografia, biometria e controle de compartilhamento.'],
  accounts:['Contas &','Redes','Proteja contas sociais, e-mail, bancos e serviços conectados.'],
@@ -83,7 +83,10 @@ function ListScreen({route,go}:{route:Route;go:(r:Route)=>void}){
  panic:['Modo','Pânico','Proteção de emergência para revogar acessos e ocultar conteúdo privado.'],
  devices:['Dispositivos &','Sessões','Gerencie dispositivos confiáveis e sessões ativas.'],
  integrations:['Integrações &','Providers','Conecte serviços, providers, MCP, módulos e ambientes autorizados.']
- }[route];
+};
+
+function ListScreen({route,go}:{route:Route;go:(r:Route)=>void}){
+ const config: SecondaryConfig = screenConfig[route] ?? ['AuthLink','','Área protegida da sua identidade.'];
  if(route==='photos') return <><Hero title={config[0]} accent={config[1]} subtitle={config[2]}/><Card className="security-score"><div className="ring"><b>68%</b></div><div><h2>10,8 GB de 16 GB</h2><p>Backup criptografado · biometria ativa</p></div></Card><div className="photo-grid">{['Viagens','Família','Pessoal','Conteúdo sensível','Momentos íntimos','Documentos','Projetos privados','Novo álbum'].map((x,i)=><button key={x} className={`photo ${i>3?'locked':''}`}><span>{i===7?'＋':'▧'}</span><b>{x}</b><small>{i===7?'privado':`${42+i*31} itens`}</small></button>)}</div><Card><h2>Guardião IA de privacidade</h2><p>Classifica localmente, identifica conteúdo sensível e sugere proteção sem compartilhar mídia por padrão.</p></Card></>;
  if(route==='backup') return <><Hero title={config[0]} accent={config[1]} subtitle={config[2]}/><Card className="security-score"><div className="ring"><b>100%</b></div><div><h2>Backup atualizado</h2><p>Hoje · próximo automático amanhã</p></div><StatusPill>Tudo protegido</StatusPill></Card><Card><h2>Destinos</h2><div className="two-col"><button>▯<b>Local</b><small>Criptografado</small></button><button>☁<b>Nuvem segura</b><small>Sincronizado</small></button></div></Card><Card><h2>Pontos de restauração</h2>{['Hoje 08:45','Ontem 08:45','22/05 08:45'].map(x=><div className="list-row" key={x}><Glyph>{icons.cloud}</Glyph><span><b>{x}</b><small>Automático · 3,4 GB</small></span><button>Restaurar</button></div>)}</Card></>;
  if(route==='panic') return <><Hero title={config[0]} accent={config[1]} subtitle={config[2]}/><Card className="panic"><button className="panic-button">ATIVAR<br/>AGORA</button><div><h2>Proteção de emergência</h2><p>Bloquear apps, revogar sessões e acionar contatos confiáveis conforme regras pré-configuradas.</p></div></Card><div className="shortcut-grid">{[['Bloquear tudo','Apps e sessões'],['Ocultar mídia','Fotos e vídeos'],['Revogar acessos','Tokens ativos'],['Compartilhar localização','Somente se configurado'],['Contatar confiança','Canais aprovados']].map(([a,b])=><button className="shortcut" key={a}><Glyph tone="red">!</Glyph><b>{a}</b><small>{b}</small></button>)}</div></>;
