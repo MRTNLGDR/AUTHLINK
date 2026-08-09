@@ -25,8 +25,8 @@ jobs:
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-store -p authlink-gateway
-      - run: cargo test -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-gateway
+      - run: cargo check -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-store -p authlink-vault -p authlink-gateway -p authlink-vault-service
+      - run: cargo test -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-vault -p authlink-gateway -p authlink-vault-service
 
   migration-syntax:
     runs-on: ubuntu-latest
@@ -39,7 +39,7 @@ jobs:
           POSTGRES_DB: authlink
         ports: ["54329:5432"]
         options: >-
-          --health-cmd "pg_isready -U authlink"
+          --health-cmd "pg_isready -U authlink -d authlink"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -60,7 +60,7 @@ jobs:
           POSTGRES_DB: authlink
         ports: ["54329:5432"]
         options: >-
-          --health-cmd "pg_isready -U authlink"
+          --health-cmd "pg_isready -U authlink -d authlink"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -78,7 +78,7 @@ jobs:
 
   local-runtime-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -91,7 +91,9 @@ jobs:
           grep -q '^OPENFGA_STORE_ID=.' .env.local
           grep -q '^OPENFGA_AUTHORIZATION_MODEL_ID=.' .env.local
           grep -q '^RAUTHY_ENC_KEYS=.' .env.local
-      - name: Verify service endpoints
+          grep -q '^AUTHLINK_VAULT_ACTIVE_KEY_VERSION=1$' .env.local
+          grep -q '^AUTHLINK_VAULT_KEYS=1/.' .env.local
+      - name: Verify infrastructure endpoints
         run: |
           curl --fail --silent http://localhost:8080/healthz | grep SERVING
           curl --fail --silent http://localhost:8085/auth/v1/.well-known/openid-configuration | grep code_challenge_methods_supported
