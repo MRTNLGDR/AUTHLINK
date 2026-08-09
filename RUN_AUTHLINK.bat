@@ -44,7 +44,7 @@ node scripts\bootstrap-local.mjs all
 if errorlevel 1 goto :fail
 
 echo.
-echo [3/3] Iniciando Gateway Rust, Vault Rust e interface AuthLink...
+echo [3/3] Iniciando Gateway Rust, Vault Rust, Device Rust e interface AuthLink...
 node scripts\dev-local.mjs
 if errorlevel 1 goto :fail
 

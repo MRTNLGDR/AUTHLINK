@@ -33,6 +33,9 @@ gateway:
 vault:
     node scripts/run-local-command.mjs cargo run -p authlink-vault-service
 
+device:
+    node scripts/run-local-command.mjs cargo run -p authlink-device-service
+
 dev:
     node scripts/dev-local.mjs
 
@@ -47,13 +50,13 @@ build-web:
     npm run build -w @authlink/web
 
 check-rust:
-    cargo check -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-store -p authlink-vault -p authlink-gateway -p authlink-vault-service
+    cargo check -p authlink-contracts -p authlink-device -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-store -p authlink-vault -p authlink-device-service -p authlink-gateway -p authlink-vault-service
 
 check:
     npm run check
-    cargo check -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-store -p authlink-vault -p authlink-gateway -p authlink-vault-service
+    cargo check -p authlink-contracts -p authlink-device -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-store -p authlink-vault -p authlink-device-service -p authlink-gateway -p authlink-vault-service
 
 test:
     npm run check
     npm run build
-    cargo test -p authlink-contracts -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-vault -p authlink-gateway -p authlink-vault-service
+    cargo test -p authlink-contracts -p authlink-device -p authlink-guardian -p authlink-idp -p authlink-policy -p authlink-vault -p authlink-device-service -p authlink-gateway -p authlink-vault-service

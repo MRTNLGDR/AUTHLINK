@@ -13,5 +13,5 @@ npm install
 echo "[2/3] Preparing Postgres, OpenFGA, Rauthy, Vault keys, model and migrations..."
 node scripts/bootstrap-local.mjs all
 
-echo "[3/3] Starting AuthLink Gateway + Vault + Web..."
+echo "[3/3] Starting AuthLink Gateway + Vault + Device + Web..."
 exec node scripts/dev-local.mjs

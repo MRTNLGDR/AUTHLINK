@@ -21,6 +21,38 @@ pub struct SessionRecord {
     pub auth_strength: String,
     pub purpose: String,
     pub audience: String,
+    pub trusted_device_id: Option<Uuid>,
+    pub assurance_evidence: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeviceChallengeRecord {
+    pub id: Uuid,
+    pub device_id: Option<Uuid>,
+    pub nonce: Vec<u8>,
+    pub action: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TrustedDeviceRecord {
+    pub id: Uuid,
+    pub device_public_id: String,
+    pub platform: String,
+    pub display_name: Option<String>,
+    pub trust_state: String,
+    pub key_alg: Option<String>,
+    pub public_key_jwk: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TrustedDeviceMetadata {
+    pub id: Uuid,
+    pub device_public_id: String,
+    pub platform: String,
+    pub display_name: Option<String>,
+    pub trust_state: String,
+    pub key_alg: Option<String>,
+    pub last_seen_at: Option<time::OffsetDateTime>,
 }
 
 #[derive(Debug, Clone)]
@@ -205,7 +237,8 @@ impl AuthlinkStore {
         let row = sqlx::query(
             r#"
             select s.id, s.identity_id, s.tenant_id, i.subject, i.display_name,
-                   s.auth_strength, s.purpose, s.audience
+                   s.auth_strength, s.purpose, s.audience, s.trusted_device_id,
+                   s.assurance_evidence
               from authlink.session s
               join authlink.identity i on i.id = s.identity_id
              where s.id = $1
@@ -227,6 +260,8 @@ impl AuthlinkStore {
             auth_strength: row.get("auth_strength"),
             purpose: row.get("purpose"),
             audience: row.get("audience"),
+            trusted_device_id: row.get("trusted_device_id"),
+            assurance_evidence: row.get("assurance_evidence"),
         }))
     }
 
@@ -237,6 +272,260 @@ impl AuthlinkStore {
         .bind(session_id)
         .execute(&self.pool)
         .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn create_device_challenge(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        session_id: Uuid,
+        device_id: Option<Uuid>,
+        action: &str,
+        nonce: &[u8],
+        ttl_seconds: i64,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            r#"
+            insert into authlink.device_challenge
+              (id, tenant_id, identity_id, session_id, device_id, action, nonce, expires_at)
+            values ($1, $2, $3, $4, $5, $6, $7, now() + ($8 * interval '1 second'))
+            "#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .bind(session_id)
+        .bind(device_id)
+        .bind(action)
+        .bind(nonce)
+        .bind(ttl_seconds)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn consume_device_challenge(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        session_id: Uuid,
+        action: &str,
+    ) -> Result<Option<DeviceChallengeRecord>, StoreError> {
+        let row = sqlx::query(
+            r#"
+            update authlink.device_challenge
+               set used_at = now()
+             where id = $1 and tenant_id = $2 and identity_id = $3
+               and session_id = $4 and action = $5
+               and used_at is null and expires_at > now()
+            returning id, device_id, nonce, action
+            "#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .bind(session_id)
+        .bind(action)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|row| DeviceChallengeRecord {
+            id: row.get("id"),
+            device_id: row.get("device_id"),
+            nonce: row.get("nonce"),
+            action: row.get("action"),
+        }))
+    }
+
+    pub async fn upsert_unrevoked_device(
+        &self,
+        id: Uuid,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        device_public_id: &str,
+        platform: &str,
+        display_name: Option<&str>,
+        key_alg: &str,
+        public_key_jwk: &serde_json::Value,
+    ) -> Result<Option<TrustedDeviceRecord>, StoreError> {
+        let row = sqlx::query(
+            r#"
+            insert into authlink.trusted_device
+              (id, tenant_id, identity_id, device_public_id, platform, trust_state,
+               attestation_kind, display_name, key_alg, public_key_jwk, last_seen_at)
+            values ($1, $2, $3, $4, $5, 'pending', 'software-possession', $6, $7, $8, now())
+            on conflict (identity_id, device_public_id) do update
+               set platform = excluded.platform,
+                   display_name = coalesce(excluded.display_name, authlink.trusted_device.display_name),
+                   key_alg = excluded.key_alg,
+                   public_key_jwk = excluded.public_key_jwk,
+                   last_seen_at = now(),
+                   version = authlink.trusted_device.version + 1
+             where authlink.trusted_device.revoked_at is null
+            returning id, device_public_id, platform, display_name, trust_state, key_alg, public_key_jwk
+            "#,
+        )
+        .bind(id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .bind(device_public_id)
+        .bind(platform)
+        .bind(display_name)
+        .bind(key_alg)
+        .bind(public_key_jwk)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(device_record_from_row))
+    }
+
+    pub async fn load_trusted_device(
+        &self,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        device_id: Uuid,
+    ) -> Result<Option<TrustedDeviceRecord>, StoreError> {
+        let row = sqlx::query(
+            r#"
+            select id, device_public_id, platform, display_name, trust_state, key_alg, public_key_jwk
+              from authlink.trusted_device
+             where id = $1 and tenant_id = $2 and identity_id = $3
+               and trust_state = 'trusted' and revoked_at is null
+            "#,
+        )
+        .bind(device_id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(device_record_from_row))
+    }
+
+    pub async fn mark_device_trusted(
+        &self,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        device_id: Uuid,
+    ) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            r#"
+            update authlink.trusted_device
+               set trust_state = 'trusted', proofed_at = now(), last_seen_at = now(),
+                   version = version + 1
+             where id = $1 and tenant_id = $2 and identity_id = $3 and revoked_at is null
+            "#,
+        )
+        .bind(device_id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn bind_session_to_trusted_device(
+        &self,
+        session_id: Uuid,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        device_id: Uuid,
+    ) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            r#"
+            update authlink.session s
+               set trusted_device_id = $4,
+                   auth_strength = 'oidc+device-possession',
+                   assurance_evidence = coalesce(s.assurance_evidence, '{}'::jsonb)
+                     || jsonb_build_object(
+                          'device_possession',
+                          jsonb_build_object('device_id', $4::text, 'verified_at', now())
+                        )
+              from authlink.trusted_device d
+             where s.id = $1 and s.tenant_id = $2 and s.identity_id = $3
+               and s.state = 'active' and s.revoked_at is null and s.expires_at > now()
+               and d.id = $4 and d.tenant_id = $2 and d.identity_id = $3
+               and d.trust_state = 'trusted' and d.revoked_at is null
+            "#,
+        )
+        .bind(session_id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .bind(device_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn list_trusted_devices(
+        &self,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+    ) -> Result<Vec<TrustedDeviceMetadata>, StoreError> {
+        let rows = sqlx::query(
+            r#"
+            select id, device_public_id, platform, display_name, trust_state, key_alg, last_seen_at
+              from authlink.trusted_device
+             where tenant_id = $1 and identity_id = $2 and revoked_at is null
+             order by last_seen_at desc nulls last, created_at desc
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(identity_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| TrustedDeviceMetadata {
+                id: row.get("id"),
+                device_public_id: row.get("device_public_id"),
+                platform: row.get("platform"),
+                display_name: row.get("display_name"),
+                trust_state: row.get("trust_state"),
+                key_alg: row.get("key_alg"),
+                last_seen_at: row.get("last_seen_at"),
+            })
+            .collect())
+    }
+
+    pub async fn revoke_trusted_device(
+        &self,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        device_id: Uuid,
+    ) -> Result<bool, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let result = sqlx::query(
+            r#"
+            update authlink.trusted_device
+               set trust_state = 'revoked', revoked_at = now(), version = version + 1
+             where id = $1 and tenant_id = $2 and identity_id = $3 and revoked_at is null
+            "#,
+        )
+        .bind(device_id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .execute(&mut *tx)
+        .await?;
+
+        if result.rows_affected() == 1 {
+            sqlx::query(
+                r#"
+                update authlink.session
+                   set state = 'revoked', revoked_at = now()
+                 where tenant_id = $1 and identity_id = $2 and trusted_device_id = $3
+                   and state = 'active'
+                "#,
+            )
+            .bind(tenant_id)
+            .bind(identity_id)
+            .bind(device_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
         Ok(result.rows_affected() == 1)
     }
 
@@ -410,5 +699,17 @@ impl AuthlinkStore {
         .execute(&self.pool)
         .await?;
         Ok(id)
+    }
+}
+
+fn device_record_from_row(row: sqlx::postgres::PgRow) -> TrustedDeviceRecord {
+    TrustedDeviceRecord {
+        id: row.get("id"),
+        device_public_id: row.get("device_public_id"),
+        platform: row.get("platform"),
+        display_name: row.get("display_name"),
+        trust_state: row.get("trust_state"),
+        key_alg: row.get("key_alg"),
+        public_key_jwk: row.get("public_key_jwk"),
     }
 }

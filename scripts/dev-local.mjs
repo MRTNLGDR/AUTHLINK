@@ -35,7 +35,8 @@ for (const required of [
 const childEnv = {
   ...process.env,
   ...localEnv,
-  RUST_LOG: process.env.RUST_LOG ?? 'authlink_gateway=info,authlink_vault_service=info,tower_http=info'
+  AUTHLINK_DEVICE_ADDR: localEnv.AUTHLINK_DEVICE_ADDR ?? '127.0.0.1:8789',
+  RUST_LOG: process.env.RUST_LOG ?? 'authlink_gateway=info,authlink_vault_service=info,authlink_device_service=info,tower_http=info'
 };
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const cargo = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
@@ -77,14 +78,16 @@ function shutdown(code=0) {
 process.on('SIGINT',()=>shutdown(0));
 process.on('SIGTERM',()=>shutdown(0));
 
-console.log('Starting AuthLink Gateway + Vault + Web…');
+console.log('Starting AuthLink Gateway + Vault + Device + Web…');
 console.log('Web:     http://localhost:5173');
 console.log('Gateway: http://localhost:8787/api/v1/health');
 console.log('Vault:   http://localhost:8788/api/v1/health');
+console.log('Device:  http://localhost:8789/api/v1/health');
 console.log('Press Ctrl+C to stop app processes. Infra remains running.');
 
 start('gateway',cargo,['run','-p','authlink-gateway']);
 start('vault',cargo,['run','-p','authlink-vault-service']);
+start('device',cargo,['run','-p','authlink-device-service']);
 start('web',npm,['run','dev','-w','@authlink/web','--','--host','0.0.0.0']);
 
 setTimeout(()=>openBrowser('http://localhost:5173'),5000).unref();

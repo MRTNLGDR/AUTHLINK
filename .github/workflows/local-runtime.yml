@@ -29,10 +29,12 @@ jobs:
           grep -q '^AUTHLINK_VAULT_KEYS=1/.' .env.local
       - name: Verify Rauthy client and PKCE authorization
         run: node scripts/verify-rauthy-client.mjs
-      - name: Build AuthLink Vault
-        run: cargo build -p authlink-vault-service
+      - name: Build AuthLink Vault and Device services
+        run: cargo build -p authlink-vault-service -p authlink-device-service
       - name: Start and verify AuthLink Vault using generated dotenv
         run: node scripts/verify-vault-runtime.mjs
+      - name: Start and verify AuthLink Device possession service
+        run: node scripts/verify-device-runtime.mjs
       - name: Dump runtime logs on failure
         if: failure()
         run: docker compose --env-file .env.local -f infra/compose/docker-compose.dev.yml logs --no-color --tail=300

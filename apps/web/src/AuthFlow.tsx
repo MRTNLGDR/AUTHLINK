@@ -5,26 +5,26 @@ import './auth.css';
 const FALLBACK_STEPS: Array<[OnboardingStepId,string,string,boolean,string]> = [
   ['welcome','Bem-vindo ao AuthLink','Sua identidade universal começa neste dispositivo.',true,'identity.enroll'],
   ['account','Criar conta ou entrar','Vincule seu AuthLink ID e escolha seu acesso inicial.',true,'identity.account'],
-  ['device-integrity','Integridade do dispositivo','Validamos postura e sinais de confiança do aparelho.',true,'device.trust'],
+  ['device-integrity','Prova deste dispositivo','Vincule uma chave local e comprove posse sem enviar a chave privada.',true,'device.trust'],
   ['face-capture','Captura facial','Mapeamento facial para proofing e referência PERZON autorizada.',true,'biometric.enroll'],
   ['liveness','Prova de vida','Confirme presença real com liveness/PAD.',true,'biometric.liveness'],
   ['document','Documento oficial','Validação documental quando a finalidade exigir.',false,'identity.document'],
   ['identity-match','Correspondência de identidade','Combinamos evidências e risco antes de elevar confiança.',true,'identity.match'],
   ['consent','Consentimentos','Escolha finalidade, retenção e uso de cada dado.',true,'consent.grant'],
-  ['passkey','Cadastrar passkey','A passkey protegida pelo sistema vira o fator principal.',true,'credential.passkey'],
+  ['passkey','Passkey / WebAuthn','Camada reservada para assertion WebAuthn comprovada; MFA genérico não é promovido a passkey.',true,'credential.passkey'],
   ['second-factor','Segundo fator','Adicione security key ou método alternativo forte.',false,'credential.second-factor'],
   ['recovery','Recuperação','Gere códigos e configure contatos confiáveis.',true,'identity.recovery'],
   ['vault-setup','Configurar Vault','Crie seu cofre e a hierarquia local de chaves.',true,'vault.bootstrap'],
   ['sovereign-identity','Identidade soberana','Revise credenciais, dispositivos e escopos.',true,'identity.activate'],
   ['avatar-opt-in','Avatar PEZON','Opcional: autorize uma referência separada para seu gêmeo digital.',false,'avatar.reference'],
   ['audit-proof','Prova e auditoria','Registramos o resultado mínimo e a trilha de consentimento.',true,'audit.write'],
-  ['complete','Acesso liberado','Sua identidade está pronta. Você entra direto no Feed.',true,'session.activate'],
+  ['complete','Acesso liberado','Sua identidade e sessão estão prontas para os apps autorizados.',true,'session.activate'],
 ];
 
 function fallbackProgress(index=0): OnboardingProgress {
   return {
     ceremony_id: 'offline-preview', current_index:index, completed:index, total:FALLBACK_STEPS.length,
-    auth_strength:index>8?'passkey-device':'anonymous', trusted_device:index>2, risk_score:index>2?8:24,
+    auth_strength:'anonymous', trusted_device:false, risk_score:index>2?8:24,
     steps:FALLBACK_STEPS.map(([id,title,subtitle,required,purpose],i)=>({
       id,title,subtitle,required,purpose,status:i<index?'complete':i===index?'active':'pending'
     }))
@@ -109,9 +109,9 @@ export function AuthFlow({ onComplete }: { onComplete:()=>void }) {
         <aside className="auth-visual">
           <div className={`auth-orb auth-orb-${step.id}`}><span>{GLYPH[step.id]}</span><i/><i/><i/></div>
           <div className="auth-metrics">
-            <div><small>TRUST</small><b>{100-progress.risk_score}%</b></div>
+            <div><small>FLOW</small><b>{percent}%</b></div>
             <div><small>RISK</small><b>{progress.risk_score}</b></div>
-            <div><small>DEVICE</small><b>{progress.trusted_device?'OK':'CHECK'}</b></div>
+            <div><small>SESSION</small><b>{online?'LIVE':'LOCAL'}</b></div>
           </div>
         </aside>
 
@@ -137,22 +137,22 @@ export function AuthFlow({ onComplete }: { onComplete:()=>void }) {
 type Consent = {security:boolean;biometric:boolean;avatar:boolean;analytics:boolean};
 function StepBody({id,email,setEmail,consent,setConsent,oidcReady,startOidc}:{id:OnboardingStepId;email:string;setEmail:(v:string)=>void;consent:Consent;setConsent:(v:Consent)=>void;oidcReady:boolean;startOidc:()=>void}) {
   switch(id){
-    case 'welcome': return <div className="auth-feature-grid"><Feature icon="◉" title="Uma identidade" text="SSO, passkeys, consentimentos e apps da suíte."/><Feature icon="⌁" title="Segurança contínua" text="Guardian avalia sessão, dispositivo e risco."/><Feature icon="↯" title="Local-first" text="Funciona localmente e reconcilia quando online."/></div>;
-    case 'account': return <div className="auth-form"><label>AuthLink ID ou e-mail<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="voce@exemplo.com" autoComplete="username"/></label><button className="method" disabled={!oidcReady} onClick={startOidc}><span>⌁</span><b>Entrar com passkey existente</b><small>{oidcReady?'OIDC + PKCE S256':'IdP não configurado'}</small></button><button className="method"><span>✉</span><b>Continuar com e-mail</b><small>Conta nova ou recuperação</small></button></div>;
-    case 'device-integrity': return <Checklist items={['Sistema operacional suportado','Boot e integridade verificados','Keystore/Secure Enclave disponível','Sem sinais críticos de comprometimento']}/>;
+    case 'welcome': return <div className="auth-feature-grid"><Feature icon="◉" title="Uma identidade" text="SSO, device trust, consentimentos e apps da suíte."/><Feature icon="⌁" title="Segurança contínua" text="Guardian avalia sessão, dispositivo e risco."/><Feature icon="↯" title="Local-first" text="Funciona localmente e reconcilia quando online."/></div>;
+    case 'account': return <div className="auth-form"><label>AuthLink ID ou e-mail<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="voce@exemplo.com" autoComplete="username"/></label><button className="method" disabled={!oidcReady} onClick={startOidc}><span>⌁</span><b>Entrar com AuthLink SSO</b><small>{oidcReady?'OIDC + Authorization Code + PKCE S256':'IdP não configurado'}</small></button><button className="method"><span>✉</span><b>Continuar com e-mail</b><small>Conta nova ou recuperação</small></button></div>;
+    case 'device-integrity': return <div className="auth-feature-grid"><Feature icon="◇" title="Chave P-256 local" text="A private key permanece não-exportável no WebCrypto deste navegador."/><Feature icon="↯" title="Challenge single-use" text="A assinatura é vinculada à sessão, identidade e ação e não aceita replay."/><Feature icon="⬡" title="Ownership OpenFGA" text="O device só vira trusted depois da prova e da relação de autorização. Use o banner acima para vincular explicitamente."/></div>;
     case 'face-capture': return <div className="face-capture"><div className="face-frame"><div className="face-silhouette">◉</div><i className="scan-line"/></div><div className="capture-stats"><span>68 pontos-chave</span><span>Qualidade excelente</span><span>Frame bruto temporário</span></div></div>;
     case 'liveness': return <><Checklist items={['Olhe para a câmera','Gire levemente o rosto','Acompanhe o ponto luminoso','PAD ativo contra replay/máscara']}/><div className="pulse-line"><i/><i/><i/><i/><i/><i/><i/></div></>;
     case 'document': return <div className="document-box"><span>▤</span><h3>Documento oficial</h3><p>Use câmera ou arquivo autorizado. O documento bruto não vai para blockchain.</p><button>Capturar documento</button></div>;
     case 'identity-match': return <div className="match-proof"><div className="match-ring"><b>99,87%</b><small>similaridade</small></div><Checklist items={['Face detectada','Liveness confirmado','Evidência documental consistente','Nenhum conflito crítico']}/></div>;
     case 'consent': return <div className="consent-list"><Toggle label="Segurança e prevenção de fraude" detail="Obrigatório para proteger sessão e dispositivo" checked={consent.security} disabled onChange={()=>{}}/><Toggle label="Biometria para identity proofing" detail="Template segregado e purpose-bound" checked={consent.biometric} onChange={v=>setConsent({...consent,biometric:v})}/><Toggle label="Referência para avatar PEZON" detail="Uso separado do login" checked={consent.avatar} onChange={v=>setConsent({...consent,avatar:v})}/><Toggle label="Telemetria de produto" detail="Sem biometria, saúde ou finanças" checked={consent.analytics} onChange={v=>setConsent({...consent,analytics:v})}/></div>;
-    case 'passkey': return <div className="key-card"><div className="key-icon">⌁</div><div><h3>Passkey protegida pelo dispositivo</h3><p>Chave privada permanece no autenticador do sistema. O AuthLink recebe apenas material público e attestation permitida.</p></div><span className="recommended">RECOMENDADO</span></div>;
-    case 'second-factor': return <div className="auth-feature-grid"><Feature icon="◇" title="Security key" text="FIDO2/NFC/USB para step-up."/><Feature icon="123" title="TOTP" text="Código temporário como fallback."/><Feature icon="⌁" title="Outro dispositivo" text="Aprovação por sessão confiável."/></div>;
+    case 'passkey': return <div className="key-card"><div className="key-icon">⌁</div><div><h3>Passkey é uma assurance separada</h3><p>Este build não promove `mfa` do IdP a passkey. A força `passkey` só será usada quando uma assertion WebAuthn específica do AuthLink for verificada no login/step-up.</p></div><span className="recommended">PRÓXIMA CAMADA</span></div>;
+    case 'second-factor': return <div className="auth-feature-grid"><Feature icon="◇" title="Security key" text="FIDO2/NFC/USB para step-up futuro."/><Feature icon="123" title="TOTP" text="Código temporário como fallback controlado."/><Feature icon="⌁" title="Outro dispositivo" text="Aprovação por sessão confiável, com política explícita."/></div>;
     case 'recovery': return <div className="recovery"><div className="codes">{['A9FK-2TQM','P7LX-8NAD','C4ZR-1WKS','M8UE-5VHP'].map(x=><code key={x}>{x}</code>)}</div><p>Guarde fora do dispositivo. Códigos nunca são enviados em analytics.</p></div>;
     case 'vault-setup': return <div className="vault-setup"><div className="vault-icon">▰</div><Checklist items={['Master key gerada localmente','Envelope encryption pronta','Autolock configurado','Backup opcional separado']}/><div className="vault-bar"><i style={{width:'82%'}}/></div></div>;
-    case 'sovereign-identity': return <div className="identity-card"><div className="identity-badge">⬡</div><div><h2>Identidade verificada</h2><p>Passkey + dispositivo + proofing + consentimentos.</p><div className="identity-chips"><span>SSO</span><span>OpenFGA</span><span>Trusted device</span><span>Purpose grants</span></div></div></div>;
+    case 'sovereign-identity': return <div className="identity-card"><div className="identity-badge">⬡</div><div><h2>Identidade com evidências separadas</h2><p>OIDC, device possession, proofing e consentimentos mantêm sua origem explícita.</p><div className="identity-chips"><span>SSO</span><span>OpenFGA</span><span>Device possession</span><span>Purpose grants</span></div></div></div>;
     case 'avatar-opt-in': return <div className="avatar-opt"><div className="avatar-ghost">◉</div><div><h3>Transformar referência autorizada em avatar</h3><p>PEZON recebe uma referência consentida; não recebe sua chave de autenticação nem vira autoridade de login.</p></div></div>;
     case 'audit-proof': return <div className="proof-list"><Proof label="Cerimônia" value="019…f72"/><Proof label="Consent root" value="sha256: 8a9…d13"/><Proof label="Audit batch" value="merkle: 42e…a07"/><Proof label="Chain anchor" value="Opcional / sem PII"/></div>;
-    case 'complete': return <div className="complete-card"><div className="complete-check">✓</div><h2>Autenticação máxima ativada</h2><p>Seu AuthLink está pronto para proteger sua identidade e abrir todos os apps autorizados da AIIA.</p><div className="identity-chips"><span>Passkey</span><span>Device trust</span><span>Guardian</span><span>Vault</span><span>Audit</span></div></div>;
+    case 'complete': return <div className="complete-card"><div className="complete-check">✓</div><h2>Sessão AuthLink preparada</h2><p>As evidências disponíveis ficam separadas e auditáveis. Recursos de maior risco podem exigir step-up adicional.</p><div className="identity-chips"><span>OIDC + PKCE</span><span>Device possession</span><span>Guardian</span><span>Vault</span><span>Audit</span></div></div>;
   }
 }
 
