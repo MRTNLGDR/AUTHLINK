@@ -75,3 +75,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: for file in migrations/*.sql; do psql -h 127.0.0.1 -p 54329 -U authlink -d authlink -v ON_ERROR_STOP=1 -f "$file"; done
       - run: cargo test -p authlink-store --test postgres
+
+  local-runtime-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bootstrap Postgres OpenFGA Rauthy and AuthLink schema
+        run: node scripts/bootstrap-local.mjs all
+      - name: Verify generated configuration
+        run: |
+          grep -q '^OPENFGA_STORE_ID=.' .env.local
+          grep -q '^OPENFGA_AUTHORIZATION_MODEL_ID=.' .env.local
+          grep -q '^RAUTHY_ENC_KEYS=.' .env.local
+      - name: Verify service endpoints
+        run: |
+          curl --fail --silent http://localhost:8080/healthz | grep SERVING
+          curl --fail --silent http://localhost:8085/auth/v1/.well-known/openid-configuration | grep code_challenge_methods_supported
+      - name: Dump local runtime logs on failure
+        if: failure()
+        run: docker compose --env-file .env.local -f infra/compose/docker-compose.dev.yml logs --no-color --tail=250
