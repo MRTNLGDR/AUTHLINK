@@ -3,24 +3,53 @@ use authlink_contracts::{
     GuardianSignals, OnboardingProgress, OnboardingStep, OnboardingStepId, StepStatus,
 };
 use authlink_guardian::evaluate;
+use authlink_idp::{unconfigured_status, OidcClient, OidcMetadata, PublicOidcStatus};
 use authlink_policy::{OpenFgaClient, PolicyCheck, PolicyDecision};
 use authlink_store::AuthlinkStore;
 use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
+    extract::{Query, State},
+    http::{
+        header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE, COOKIE, SET_COOKIE},
+        HeaderMap, HeaderValue, Method, StatusCode,
+    },
+    response::{IntoResponse, Redirect},
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
-use std::{env, net::SocketAddr, sync::{Arc, Mutex}};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    env,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use uuid::Uuid;
+
+const SESSION_COOKIE: &str = "authlink_session";
+const SESSION_TTL_SECONDS: i64 = 8 * 60 * 60;
+const LOGIN_TX_TTL: Duration = Duration::from_secs(10 * 60);
+const DEV_TENANT_ID: &str = "00000000-0000-7000-8000-000000000001";
 
 #[derive(Debug, Clone, Copy)]
 struct CeremonyState {
     id: Uuid,
     completed: usize,
+}
+
+#[derive(Debug)]
+struct LoginTransaction {
+    code_verifier: String,
+    created_at: Instant,
+}
+
+#[derive(Debug, Clone)]
+struct MemorySession {
+    subject: String,
+    display_name: Option<String>,
+    auth_strength: String,
+    expires_at: Instant,
 }
 
 #[derive(Clone)]
@@ -30,6 +59,13 @@ struct AppState {
     store: Option<AuthlinkStore>,
     policy: Option<OpenFgaClient>,
     policy_dev_bypass: bool,
+    idp: Option<OidcClient>,
+    idp_metadata: Option<OidcMetadata>,
+    login_transactions: Arc<Mutex<HashMap<String, LoginTransaction>>>,
+    memory_sessions: Arc<Mutex<HashMap<Uuid, MemorySession>>>,
+    web_url: String,
+    cookie_secure: bool,
+    tenant_id: Uuid,
 }
 
 #[derive(Serialize)]
@@ -44,6 +80,8 @@ struct RuntimeStatus {
     authorization: &'static str,
     authorization_dev_bypass: bool,
     ceremony_storage: &'static str,
+    identity_provider: &'static str,
+    session_storage: &'static str,
 }
 
 #[derive(Serialize)]
@@ -52,11 +90,11 @@ struct CapabilityResponse {
 }
 
 #[derive(Serialize)]
-struct SessionSummary<'a> {
-    subject: &'a str,
-    #[serde(rename = "authStrength")]
-    auth_strength: &'a str,
-    #[serde(rename = "trustedDevice")]
+struct SessionSummary {
+    authenticated: bool,
+    subject: Option<String>,
+    display_name: Option<String>,
+    auth_strength: Option<String>,
     trusted_device: bool,
     online: bool,
 }
@@ -68,6 +106,21 @@ struct PolicyStatus {
     mode: &'static str,
 }
 
+#[derive(Serialize)]
+struct OidcStartResponse {
+    authorization_url: String,
+    state: String,
+}
+
+#[derive(Deserialize)]
+struct OidcCallbackQuery {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+    #[allow(dead_code)]
+    error_description: Option<String>,
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -77,6 +130,15 @@ async fn main() {
 
     let environment = env::var("AUTHLINK_ENV").unwrap_or_else(|_| "development".into());
     let is_production = environment.eq_ignore_ascii_case("production");
+    let web_url = env::var("AUTHLINK_WEB_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5173".into())
+        .trim_end_matches('/')
+        .to_owned();
+    let tenant_id = match env::var("AUTHLINK_DEFAULT_TENANT_ID") {
+        Ok(value) => Uuid::parse_str(&value).expect("valid AUTHLINK_DEFAULT_TENANT_ID"),
+        Err(_) if is_production => panic!("AUTHLINK_DEFAULT_TENANT_ID is mandatory in production"),
+        Err(_) => Uuid::parse_str(DEV_TENANT_ID).expect("valid development tenant UUID"),
+    };
 
     let policy = OpenFgaClient::from_env().expect("valid OpenFGA configuration");
     let policy_dev_bypass = !is_production
@@ -94,12 +156,29 @@ async fn main() {
         Ok(store) => store,
         Err(error) if is_production => panic!("failed to connect AuthLink PostgreSQL store: {error}"),
         Err(error) => {
-            tracing::warn!(error = %error, "PostgreSQL unavailable; using development in-memory ceremony store");
+            tracing::warn!(error = %error, "PostgreSQL unavailable; using development in-memory state");
             None
         }
     };
     if is_production && store.is_none() {
         panic!("DATABASE_URL is mandatory in production");
+    }
+
+    let idp = OidcClient::from_env().expect("valid AuthLink OIDC configuration");
+    let idp_metadata = if let Some(client) = &idp {
+        match client.discover().await {
+            Ok(metadata) => Some(metadata),
+            Err(error) if is_production => panic!("OIDC discovery failed in production: {error}"),
+            Err(error) => {
+                tracing::warn!(error = %error, "OIDC discovery unavailable; external login disabled in development");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    if is_production && (idp.is_none() || idp_metadata.is_none()) {
+        panic!("AUTHLINK_OIDC_ISSUER and a reachable OIDC provider are mandatory in production");
     }
 
     let initial_ceremony = CeremonyState { id: Uuid::now_v7(), completed: 0 };
@@ -112,6 +191,7 @@ async fn main() {
 
     let capabilities = vec![
         cap("identity.sso", "SSO & Passkeys", "identity"),
+        cap("identity.oidc-pkce", "OIDC Authorization Code + PKCE", "identity"),
         cap("identity.onboarding", "Cerimônia de identidade", "identity"),
         cap("authorization.openfga", "OpenFGA ReBAC", "identity"),
         cap("persistence.postgres", "PostgreSQL authority", "platform"),
@@ -135,13 +215,31 @@ async fn main() {
         store,
         policy,
         policy_dev_bypass,
+        idp,
+        idp_metadata,
+        login_transactions: Arc::new(Mutex::new(HashMap::new())),
+        memory_sessions: Arc::new(Mutex::new(HashMap::new())),
+        web_url: web_url.clone(),
+        cookie_secure: is_production,
+        tenant_id,
     };
+
+    let allowed_origin = HeaderValue::from_str(&web_url).expect("AUTHLINK_WEB_URL must be a valid HTTP origin");
+    let cors = CorsLayer::new()
+        .allow_origin(allowed_origin)
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([CONTENT_TYPE, AUTHORIZATION])
+        .allow_credentials(true);
 
     let app = Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/authlink/runtime", get(runtime_status))
         .route("/api/v1/authlink/capabilities", get(list_capabilities))
         .route("/api/v1/authlink/session", get(session))
+        .route("/api/v1/authlink/session/logout", post(logout))
+        .route("/api/v1/authlink/oidc/status", get(oidc_status))
+        .route("/api/v1/authlink/oidc/start", post(oidc_start))
+        .route("/api/v1/authlink/oidc/callback", get(oidc_callback))
         .route("/api/v1/authlink/onboarding", get(get_onboarding))
         .route("/api/v1/authlink/onboarding/advance", post(advance_onboarding))
         .route("/api/v1/authlink/onboarding/reset", post(reset_onboarding))
@@ -152,7 +250,7 @@ async fn main() {
         .route("/api/v1/capabilities/authlink", get(list_capabilities))
         .fallback(not_found)
         .with_state(state)
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = env::var("AUTHLINK_GATEWAY_ADDR")
@@ -281,6 +379,8 @@ async fn runtime_status(State(state): State<AppState>) -> Json<RuntimeStatus> {
         authorization: if state.policy.is_some() { "openfga" } else if state.policy_dev_bypass { "development-bypass" } else { "unavailable" },
         authorization_dev_bypass: state.policy_dev_bypass,
         ceremony_storage: if state.store.is_some() { "postgres-optimistic" } else { "memory-development" },
+        identity_provider: if state.idp_metadata.is_some() { "oidc-ready" } else { "unconfigured" },
+        session_storage: if state.store.is_some() { "postgres-opaque-cookie" } else { "memory-development" },
     })
 }
 
@@ -288,8 +388,188 @@ async fn list_capabilities(State(state): State<AppState>) -> Json<CapabilityResp
     Json(CapabilityResponse { capabilities: (*state.capabilities).clone() })
 }
 
-async fn session() -> Json<SessionSummary<'static>> {
-    Json(SessionSummary { subject: "local-user", auth_strength: "passkey+device", trusted_device: true, online: true })
+async fn oidc_status(State(state): State<AppState>) -> Json<PublicOidcStatus> {
+    Json(match &state.idp {
+        Some(client) => client.public_status(state.idp_metadata.as_ref()),
+        None => unconfigured_status(),
+    })
+}
+
+async fn oidc_start(State(state): State<AppState>) -> impl IntoResponse {
+    let Some(client) = &state.idp else {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "OIDC_NOT_CONFIGURED" }))).into_response();
+    };
+    let Some(metadata) = &state.idp_metadata else {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({ "error": "OIDC_DISCOVERY_UNAVAILABLE" }))).into_response();
+    };
+    let transaction = match client.begin_authorization(metadata) {
+        Ok(transaction) => transaction,
+        Err(error) => return (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": "OIDC_START_FAILED", "developer_message": error.to_string() })),
+        ).into_response(),
+    };
+
+    {
+        let mut logins = match state.login_transactions.lock() {
+            Ok(logins) => logins,
+            Err(_) => return internal_error("OIDC_TRANSACTION_STATE_UNAVAILABLE"),
+        };
+        logins.retain(|_, value| value.created_at.elapsed() <= LOGIN_TX_TTL);
+        logins.insert(transaction.state.clone(), LoginTransaction {
+            code_verifier: transaction.code_verifier,
+            created_at: Instant::now(),
+        });
+    }
+
+    (
+        StatusCode::OK,
+        Json(OidcStartResponse { authorization_url: transaction.authorization_url, state: transaction.state }),
+    ).into_response()
+}
+
+async fn oidc_callback(State(state): State<AppState>, Query(query): Query<OidcCallbackQuery>) -> axum::response::Response {
+    if query.error.is_some() {
+        return oidc_failure_redirect(&state, "provider_denied");
+    }
+    let (Some(code), Some(returned_state)) = (query.code.as_deref(), query.state.as_deref()) else {
+        return oidc_failure_redirect(&state, "missing_code_or_state");
+    };
+    let transaction = {
+        let mut logins = match state.login_transactions.lock() {
+            Ok(logins) => logins,
+            Err(_) => return oidc_failure_redirect(&state, "transaction_store_unavailable"),
+        };
+        logins.retain(|_, value| value.created_at.elapsed() <= LOGIN_TX_TTL);
+        logins.remove(returned_state)
+    };
+    let Some(transaction) = transaction else {
+        return oidc_failure_redirect(&state, "invalid_or_expired_state");
+    };
+    if transaction.created_at.elapsed() > LOGIN_TX_TTL {
+        return oidc_failure_redirect(&state, "expired_state");
+    }
+
+    let (Some(client), Some(metadata)) = (&state.idp, &state.idp_metadata) else {
+        return oidc_failure_redirect(&state, "idp_unavailable");
+    };
+    let token = match client.exchange_code(metadata, code, &transaction.code_verifier).await {
+        Ok(token) => token,
+        Err(error) => {
+            tracing::warn!(error = %error, "OIDC code exchange failed");
+            return oidc_failure_redirect(&state, "code_exchange_failed");
+        }
+    };
+    let user = match client.userinfo(metadata, &token.access_token).await {
+        Ok(user) => user,
+        Err(error) => {
+            tracing::warn!(error = %error, "OIDC userinfo failed");
+            return oidc_failure_redirect(&state, "userinfo_failed");
+        }
+    };
+    drop(token);
+
+    let session_id = Uuid::new_v4();
+    let display_name = user.name.clone().or(user.preferred_username.clone());
+    if let Some(store) = &state.store {
+        let identity_id = match store.upsert_oidc_identity(state.tenant_id, &user.sub, display_name.as_deref()).await {
+            Ok(identity_id) => identity_id,
+            Err(error) => {
+                tracing::error!(error = %error, "failed to persist OIDC identity");
+                return oidc_failure_redirect(&state, "identity_persistence_failed");
+            }
+        };
+        if let Err(error) = store
+            .create_session(session_id, state.tenant_id, identity_id, "authlink-web", "suite.access", "oidc", SESSION_TTL_SECONDS)
+            .await
+        {
+            tracing::error!(error = %error, "failed to persist AuthLink session");
+            return oidc_failure_redirect(&state, "session_persistence_failed");
+        }
+    } else {
+        let mut sessions = match state.memory_sessions.lock() {
+            Ok(sessions) => sessions,
+            Err(_) => return oidc_failure_redirect(&state, "session_store_unavailable"),
+        };
+        sessions.retain(|_, value| value.expires_at > Instant::now());
+        sessions.insert(session_id, MemorySession {
+            subject: user.sub,
+            display_name,
+            auth_strength: "oidc".into(),
+            expires_at: Instant::now() + Duration::from_secs(SESSION_TTL_SECONDS as u64),
+        });
+    }
+
+    let target = format!("{}?authlink_login=success#/feed", state.web_url);
+    let mut response = Redirect::to(&target).into_response();
+    let cookie = build_session_cookie(session_id, state.cookie_secure, SESSION_TTL_SECONDS);
+    response.headers_mut().insert(SET_COOKIE, HeaderValue::from_str(&cookie).expect("valid session cookie"));
+    response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+async fn session(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    let Some(session_id) = session_id_from_headers(&headers) else {
+        return unauthenticated_session();
+    };
+
+    if let Some(store) = &state.store {
+        return match store.load_active_session(session_id).await {
+            Ok(Some(session)) => (
+                StatusCode::OK,
+                Json(SessionSummary {
+                    authenticated: true,
+                    subject: Some(session.subject),
+                    display_name: session.display_name,
+                    auth_strength: Some(session.auth_strength),
+                    trusted_device: false,
+                    online: true,
+                }),
+            ).into_response(),
+            Ok(None) => unauthenticated_session(),
+            Err(error) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "SESSION_LOAD_FAILED", "developer_message": error.to_string() })),
+            ).into_response(),
+        };
+    }
+
+    let mut sessions = match state.memory_sessions.lock() {
+        Ok(sessions) => sessions,
+        Err(_) => return internal_error("SESSION_STATE_UNAVAILABLE"),
+    };
+    sessions.retain(|_, value| value.expires_at > Instant::now());
+    match sessions.get(&session_id) {
+        Some(session) => (
+            StatusCode::OK,
+            Json(SessionSummary {
+                authenticated: true,
+                subject: Some(session.subject.clone()),
+                display_name: session.display_name.clone(),
+                auth_strength: Some(session.auth_strength.clone()),
+                trusted_device: false,
+                online: true,
+            }),
+        ).into_response(),
+        None => unauthenticated_session(),
+    }
+}
+
+async fn logout(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Some(session_id) = session_id_from_headers(&headers) {
+        if let Some(store) = &state.store {
+            if let Err(error) = store.revoke_session(session_id).await {
+                tracing::error!(error = %error, "failed to revoke AuthLink session");
+            }
+        } else if let Ok(mut sessions) = state.memory_sessions.lock() {
+            sessions.remove(&session_id);
+        }
+    }
+    let mut response = (StatusCode::NO_CONTENT, ()).into_response();
+    let cookie = format!("{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}", if state.cookie_secure { "; Secure" } else { "" });
+    response.headers_mut().insert(SET_COOKIE, HeaderValue::from_str(&cookie).expect("valid logout cookie"));
+    response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 async fn get_onboarding(State(state): State<AppState>) -> impl IntoResponse {
@@ -469,6 +749,42 @@ async fn policy_check(State(state): State<AppState>, Json(check): Json<PolicyChe
         StatusCode::SERVICE_UNAVAILABLE,
         Json(serde_json::json!({ "error": "POLICY_UNAVAILABLE" })),
     ).into_response()
+}
+
+fn session_id_from_headers(headers: &HeaderMap) -> Option<Uuid> {
+    let cookie = headers.get(COOKIE)?.to_str().ok()?;
+    cookie
+        .split(';')
+        .filter_map(|part| part.trim().split_once('='))
+        .find_map(|(name, value)| (name == SESSION_COOKIE).then(|| Uuid::parse_str(value).ok()).flatten())
+}
+
+fn build_session_cookie(session_id: Uuid, secure: bool, max_age: i64) -> String {
+    format!(
+        "{SESSION_COOKIE}={session_id}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{}",
+        if secure { "; Secure" } else { "" }
+    )
+}
+
+fn unauthenticated_session() -> axum::response::Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(SessionSummary {
+            authenticated: false,
+            subject: None,
+            display_name: None,
+            auth_strength: None,
+            trusted_device: false,
+            online: true,
+        }),
+    ).into_response()
+}
+
+fn oidc_failure_redirect(state: &AppState, reason: &str) -> axum::response::Response {
+    let target = format!("{}?authlink_login=error&authlink_reason={}#/auth", state.web_url, reason);
+    let mut response = Redirect::to(&target).into_response();
+    response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 fn internal_error(code: &str) -> axum::response::Response {

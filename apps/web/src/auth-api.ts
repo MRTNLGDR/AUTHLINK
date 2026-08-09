@@ -44,14 +44,39 @@ export interface AdvanceResponse {
   message?: string | null;
 }
 
+export interface OidcStatus {
+  configured: boolean;
+  issuer?: string | null;
+  client_id?: string | null;
+  redirect_uri?: string | null;
+  discovery_ready: boolean;
+  pkce_s256: boolean;
+}
+
+export interface OidcStart {
+  authorization_url: string;
+  state: string;
+}
+
+export interface SessionSummary {
+  authenticated: boolean;
+  subject?: string | null;
+  display_name?: string | null;
+  auth_strength?: string | null;
+  trusted_device: boolean;
+  online: boolean;
+}
+
 const API = import.meta.env.VITE_AUTHLINK_API ?? 'http://127.0.0.1:8787/api/v1';
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API}${path}`, {
     ...init,
+    credentials: 'include',
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
   });
-  const body = await response.json();
+  const contentType = response.headers.get('content-type') ?? '';
+  const body = contentType.includes('application/json') ? await response.json() : null;
   if (!response.ok) {
     const message = body?.message ?? body?.error ?? `HTTP ${response.status}`;
     throw new Error(message);
@@ -60,6 +85,10 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const authApi = {
+  session: () => json<SessionSummary>('/authlink/session'),
+  logout: () => json<void>('/authlink/session/logout', { method: 'POST', body: '{}' }),
+  oidcStatus: () => json<OidcStatus>('/authlink/oidc/status'),
+  oidcStart: () => json<OidcStart>('/authlink/oidc/start', { method: 'POST', body: '{}' }),
   progress: () => json<OnboardingProgress>('/authlink/onboarding'),
   advance: (step: OnboardingStepId, options?: { skip?: boolean; evidenceRef?: string }) =>
     json<AdvanceResponse>('/authlink/onboarding/advance', {

@@ -10,6 +10,18 @@ pub struct CeremonyRecord {
     pub completed_steps: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct SessionRecord {
+    pub id: Uuid,
+    pub identity_id: Uuid,
+    pub tenant_id: Uuid,
+    pub subject: String,
+    pub display_name: Option<String>,
+    pub auth_strength: String,
+    pub purpose: String,
+    pub audience: String,
+}
+
 #[derive(Debug, Error)]
 pub enum StoreError {
     #[error("database error: {0}")]
@@ -110,6 +122,99 @@ impl AuthlinkStore {
         .bind(trusted_device)
         .bind(i16::from(risk_score))
         .bind(complete)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
+    pub async fn upsert_oidc_identity(
+        &self,
+        tenant_id: Uuid,
+        subject: &str,
+        display_name: Option<&str>,
+    ) -> Result<Uuid, StoreError> {
+        let identity_id: Uuid = sqlx::query_scalar(
+            r#"
+            insert into authlink.identity (tenant_id, subject, display_name, assurance_level)
+            values ($1, $2, $3, 'oidc')
+            on conflict (subject) do update
+               set display_name = coalesce(excluded.display_name, authlink.identity.display_name),
+                   updated_at = now(),
+                   version = authlink.identity.version + 1
+            returning id
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(subject)
+        .bind(display_name)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(identity_id)
+    }
+
+    pub async fn create_session(
+        &self,
+        session_id: Uuid,
+        tenant_id: Uuid,
+        identity_id: Uuid,
+        audience: &str,
+        purpose: &str,
+        auth_strength: &str,
+        ttl_seconds: i64,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            r#"
+            insert into authlink.session
+              (id, tenant_id, identity_id, audience, purpose, auth_strength, state, expires_at)
+            values ($1, $2, $3, $4, $5, $6, 'active', now() + ($7 * interval '1 second'))
+            "#,
+        )
+        .bind(session_id)
+        .bind(tenant_id)
+        .bind(identity_id)
+        .bind(audience)
+        .bind(purpose)
+        .bind(auth_strength)
+        .bind(ttl_seconds)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn load_active_session(&self, session_id: Uuid) -> Result<Option<SessionRecord>, StoreError> {
+        let row = sqlx::query(
+            r#"
+            select s.id, s.identity_id, s.tenant_id, i.subject, i.display_name,
+                   s.auth_strength, s.purpose, s.audience
+              from authlink.session s
+              join authlink.identity i on i.id = s.identity_id
+             where s.id = $1
+               and s.state = 'active'
+               and s.revoked_at is null
+               and s.expires_at > now()
+            "#,
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|row| SessionRecord {
+            id: row.get("id"),
+            identity_id: row.get("identity_id"),
+            tenant_id: row.get("tenant_id"),
+            subject: row.get("subject"),
+            display_name: row.get("display_name"),
+            auth_strength: row.get("auth_strength"),
+            purpose: row.get("purpose"),
+            audience: row.get("audience"),
+        }))
+    }
+
+    pub async fn revoke_session(&self, session_id: Uuid) -> Result<bool, StoreError> {
+        let result = sqlx::query(
+            "update authlink.session set state = 'revoked', revoked_at = now() where id = $1 and state = 'active'",
+        )
+        .bind(session_id)
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() == 1)
