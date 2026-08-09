@@ -50,8 +50,6 @@ services:
     environment:
       LISTEN_SCHEME: http
       PUB_URL: localhost:8085
-      BOOTSTRAP_ADMIN_EMAIL: admin@authlink.local
-      BOOTSTRAP_ADMIN_PASSWORD_PLAIN: "${RAUTHY_ADMIN_PASSWORD:?run node scripts/bootstrap-local.mjs env first}"
       BOOTSTRAP_DIR: /app/bootstrap
       ENC_KEYS: "${RAUTHY_ENC_KEYS:?run node scripts/bootstrap-local.mjs env first}"
       ENC_KEY_ACTIVE: "${RAUTHY_ENC_KEY_ACTIVE:?run node scripts/bootstrap-local.mjs env first}"
@@ -62,7 +60,7 @@ services:
       ADMIN_FORCE_MFA: "false"
     volumes:
       - rauthy_data:/app/data
-      - ../rauthy/bootstrap:/app/bootstrap:ro
+      - ../../.authlink-local/rauthy-bootstrap:/app/bootstrap:ro
     restart: unless-stopped
 
 volumes:
