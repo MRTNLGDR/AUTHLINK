@@ -28,10 +28,10 @@ web:
     npm run dev -w @authlink/web
 
 gateway:
-    set -a && source .env.local && set +a && cargo run -p authlink-gateway
+    node scripts/run-local-command.mjs cargo run -p authlink-gateway
 
 vault:
-    set -a && source .env.local && set +a && cargo run -p authlink-vault-service
+    node scripts/run-local-command.mjs cargo run -p authlink-vault-service
 
 dev:
     node scripts/dev-local.mjs
