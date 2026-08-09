@@ -40,6 +40,7 @@ const GLYPH: Record<OnboardingStepId,string> = {
 export function AuthFlow({ onComplete }: { onComplete:()=>void }) {
   const [progress,setProgress] = useState<OnboardingProgress>(()=>fallbackProgress());
   const [online,setOnline] = useState(false);
+  const [oidcReady,setOidcReady] = useState(false);
   const [busy,setBusy] = useState(true);
   const [error,setError] = useState('');
   const [email,setEmail] = useState('');
@@ -48,6 +49,7 @@ export function AuthFlow({ onComplete }: { onComplete:()=>void }) {
   useEffect(()=>{
     let live=true;
     authApi.progress().then(p=>{if(live){setProgress(p);setOnline(true)}}).catch(()=>{if(live)setOnline(false)}).finally(()=>{if(live)setBusy(false)});
+    authApi.oidcStatus().then(status=>{if(live)setOidcReady(status.configured&&status.discovery_ready&&status.pkce_s256)}).catch(()=>{if(live)setOidcReady(false)});
     return ()=>{live=false};
   },[]);
 
@@ -55,6 +57,18 @@ export function AuthFlow({ onComplete }: { onComplete:()=>void }) {
   const percent = Math.round((progress.completed / progress.total)*100);
   const canSkip = !step.required;
   const isLast = step.id === 'complete';
+
+  async function startOidc() {
+    setError('');
+    setBusy(true);
+    try {
+      const login = await authApi.oidcStart();
+      location.assign(login.authorization_url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Não foi possível iniciar o login protegido.');
+      setBusy(false);
+    }
+  }
 
   async function advance(skip=false) {
     setError(''); setBusy(true);
@@ -105,7 +119,7 @@ export function AuthFlow({ onComplete }: { onComplete:()=>void }) {
           <div className="auth-kicker"><span>ETAPA {Math.min(progress.current_index+1,progress.total)}</span><b>{step.purpose}</b></div>
           <h1>{step.title}</h1>
           <p className="auth-subtitle">{step.subtitle}</p>
-          <StepBody id={step.id} email={email} setEmail={setEmail} consent={consent} setConsent={setConsent}/>
+          <StepBody id={step.id} email={email} setEmail={setEmail} consent={consent} setConsent={setConsent} oidcReady={oidcReady} startOidc={startOidc}/>
           {error&&<div className="auth-error">{error}</div>}
           <div className="auth-actions">
             {canSkip && <button className="auth-secondary" disabled={busy} onClick={()=>advance(true)}>Agora não</button>}
@@ -121,10 +135,10 @@ export function AuthFlow({ onComplete }: { onComplete:()=>void }) {
 }
 
 type Consent = {security:boolean;biometric:boolean;avatar:boolean;analytics:boolean};
-function StepBody({id,email,setEmail,consent,setConsent}:{id:OnboardingStepId;email:string;setEmail:(v:string)=>void;consent:Consent;setConsent:(v:Consent)=>void}) {
+function StepBody({id,email,setEmail,consent,setConsent,oidcReady,startOidc}:{id:OnboardingStepId;email:string;setEmail:(v:string)=>void;consent:Consent;setConsent:(v:Consent)=>void;oidcReady:boolean;startOidc:()=>void}) {
   switch(id){
     case 'welcome': return <div className="auth-feature-grid"><Feature icon="◉" title="Uma identidade" text="SSO, passkeys, consentimentos e apps da suíte."/><Feature icon="⌁" title="Segurança contínua" text="Guardian avalia sessão, dispositivo e risco."/><Feature icon="↯" title="Local-first" text="Funciona localmente e reconcilia quando online."/></div>;
-    case 'account': return <div className="auth-form"><label>AuthLink ID ou e-mail<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="voce@exemplo.com" autoComplete="username"/></label><button className="method"><span>⌁</span><b>Entrar com passkey existente</b><small>Preferencial</small></button><button className="method"><span>✉</span><b>Continuar com e-mail</b><small>Conta nova ou recuperação</small></button></div>;
+    case 'account': return <div className="auth-form"><label>AuthLink ID ou e-mail<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="voce@exemplo.com" autoComplete="username"/></label><button className="method" disabled={!oidcReady} onClick={startOidc}><span>⌁</span><b>Entrar com passkey existente</b><small>{oidcReady?'OIDC + PKCE S256':'IdP não configurado'}</small></button><button className="method"><span>✉</span><b>Continuar com e-mail</b><small>Conta nova ou recuperação</small></button></div>;
     case 'device-integrity': return <Checklist items={['Sistema operacional suportado','Boot e integridade verificados','Keystore/Secure Enclave disponível','Sem sinais críticos de comprometimento']}/>;
     case 'face-capture': return <div className="face-capture"><div className="face-frame"><div className="face-silhouette">◉</div><i className="scan-line"/></div><div className="capture-stats"><span>68 pontos-chave</span><span>Qualidade excelente</span><span>Frame bruto temporário</span></div></div>;
     case 'liveness': return <><Checklist items={['Olhe para a câmera','Gire levemente o rosto','Acompanhe o ponto luminoso','PAD ativo contra replay/máscara']}/><div className="pulse-line"><i/><i/><i/><i/><i/><i/><i/></div></>;
