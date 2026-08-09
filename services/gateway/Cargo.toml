@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 authlink-contracts = { path = "../../crates/authlink-contracts" }
 authlink-guardian = { path = "../../crates/authlink-guardian" }
+authlink-idp = { path = "../../crates/authlink-idp" }
 authlink-policy = { path = "../../crates/authlink-policy" }
 authlink-store = { path = "../../crates/authlink-store" }
 axum = "0.8.9"
