@@ -25,8 +25,8 @@ jobs:
         with:
           toolchain: 1.88.0
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check -p authlink-contracts -p authlink-guardian -p authlink-gateway
-      - run: cargo test -p authlink-contracts -p authlink-guardian -p authlink-gateway
+      - run: cargo check -p authlink-contracts -p authlink-guardian -p authlink-policy -p authlink-store -p authlink-gateway
+      - run: cargo test -p authlink-contracts -p authlink-guardian -p authlink-policy -p authlink-gateway
 
   migration-syntax:
     runs-on: ubuntu-latest
@@ -48,3 +48,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: for file in migrations/*.sql; do echo "Applying $file"; psql -h 127.0.0.1 -p 54329 -U authlink -d authlink -v ON_ERROR_STOP=1 -f "$file"; done
+
+  store-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: authlink
+          POSTGRES_PASSWORD: authlink_dev_only
+          POSTGRES_DB: authlink
+        ports: ["54329:5432"]
+        options: >-
+          --health-cmd "pg_isready -U authlink"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: authlink_dev_only
+      DATABASE_URL: postgres://authlink:authlink_dev_only@127.0.0.1:54329/authlink
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - run: for file in migrations/*.sql; do psql -h 127.0.0.1 -p 54329 -U authlink -d authlink -v ON_ERROR_STOP=1 -f "$file"; done
+      - run: cargo test -p authlink-store --test postgres
