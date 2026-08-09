@@ -4,6 +4,7 @@ use chacha20poly1305::{
     Key, XChaCha20Poly1305, XNonce,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use thiserror::Error;
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -47,6 +48,88 @@ impl MasterKey {
 
     pub fn version(&self) -> u32 {
         self.version
+    }
+}
+
+pub struct KeyRing {
+    active_version: u32,
+    keys: BTreeMap<u32, MasterKey>,
+}
+
+impl KeyRing {
+    pub fn new(active_version: u32, keys: impl IntoIterator<Item = MasterKey>) -> Result<Self, VaultError> {
+        let mut map = BTreeMap::new();
+        for key in keys {
+            let version = key.version();
+            if map.insert(version, key).is_some() {
+                return Err(VaultError::DuplicateKeyVersion(version));
+            }
+        }
+        if !map.contains_key(&active_version) {
+            return Err(VaultError::ActiveKeyMissing(active_version));
+        }
+        Ok(Self { active_version, keys: map })
+    }
+
+    /// Parses `version/base64` entries separated by commas or new lines.
+    pub fn from_encoded(active_version: u32, encoded: &str) -> Result<Self, VaultError> {
+        let mut keys = Vec::new();
+        for raw in encoded.split([',', '\n', '\r']) {
+            let raw = raw.trim();
+            if raw.is_empty() {
+                continue;
+            }
+            let (version, material) = raw
+                .split_once('/')
+                .ok_or_else(|| VaultError::InvalidKeyEntry(raw.to_owned()))?;
+            let version = version
+                .parse::<u32>()
+                .map_err(|_| VaultError::InvalidKeyEntry(raw.to_owned()))?;
+            keys.push(MasterKey::from_base64(material, version)?);
+        }
+        if keys.is_empty() {
+            return Err(VaultError::EmptyKeyRing);
+        }
+        Self::new(active_version, keys)
+    }
+
+    pub fn active_version(&self) -> u32 {
+        self.active_version
+    }
+
+    pub fn encrypt(&self, binding: &VaultBinding, plaintext: &[u8]) -> Result<EncryptedEnvelope, VaultError> {
+        let key = self
+            .keys
+            .get(&self.active_version)
+            .ok_or(VaultError::ActiveKeyMissing(self.active_version))?;
+        encrypt(key, binding, plaintext)
+    }
+
+    pub fn decrypt(&self, binding: &VaultBinding, envelope: &EncryptedEnvelope) -> Result<Zeroizing<Vec<u8>>, VaultError> {
+        let key = self
+            .keys
+            .get(&envelope.key_version)
+            .ok_or(VaultError::KeyUnavailable(envelope.key_version))?;
+        decrypt(key, binding, envelope)
+    }
+
+    pub fn rewrap_to_active(
+        &self,
+        binding: &VaultBinding,
+        envelope: &EncryptedEnvelope,
+    ) -> Result<EncryptedEnvelope, VaultError> {
+        if envelope.key_version == self.active_version {
+            return Ok(envelope.clone());
+        }
+        let old = self
+            .keys
+            .get(&envelope.key_version)
+            .ok_or(VaultError::KeyUnavailable(envelope.key_version))?;
+        let new = self
+            .keys
+            .get(&self.active_version)
+            .ok_or(VaultError::ActiveKeyMissing(self.active_version))?;
+        rewrap(old, new, binding, envelope)
     }
 }
 
@@ -121,6 +204,16 @@ pub enum VaultError {
     UnsupportedAadVersion(u8),
     #[error("envelope key version {envelope} does not match provided key version {provided}")]
     KeyVersionMismatch { envelope: u32, provided: u32 },
+    #[error("invalid key-ring entry: {0}")]
+    InvalidKeyEntry(String),
+    #[error("key ring cannot be empty")]
+    EmptyKeyRing,
+    #[error("duplicate master-key version: {0}")]
+    DuplicateKeyVersion(u32),
+    #[error("active master-key version is missing: {0}")]
+    ActiveKeyMissing(u32),
+    #[error("master-key version is unavailable: {0}")]
+    KeyUnavailable(u32),
     #[error("authenticated encryption/decryption failed")]
     Crypto,
 }
@@ -136,20 +229,22 @@ pub fn encrypt(
     let mut payload_nonce = [0_u8; NONCE_BYTES];
     getrandom::fill(&mut payload_nonce).map_err(|error| VaultError::Entropy(error.to_string()))?;
     let payload_cipher = XChaCha20Poly1305::new(Key::from_slice(dek.as_ref()));
+    let payload_aad = binding.payload_aad();
     let ciphertext = payload_cipher
         .encrypt(
             XNonce::from_slice(&payload_nonce),
-            Payload { msg: plaintext, aad: &binding.payload_aad() },
+            Payload { msg: plaintext, aad: &payload_aad },
         )
         .map_err(|_| VaultError::Crypto)?;
 
     let mut wrap_nonce = [0_u8; NONCE_BYTES];
     getrandom::fill(&mut wrap_nonce).map_err(|error| VaultError::Entropy(error.to_string()))?;
     let wrapping_cipher = XChaCha20Poly1305::new(Key::from_slice(&master_key.bytes));
+    let wrap_aad = binding.wrap_aad(master_key.version);
     let wrapped_dek = wrapping_cipher
         .encrypt(
             XNonce::from_slice(&wrap_nonce),
-            Payload { msg: dek.as_ref(), aad: &binding.wrap_aad(master_key.version) },
+            Payload { msg: dek.as_ref(), aad: &wrap_aad },
         )
         .map_err(|_| VaultError::Crypto)?;
 
@@ -180,10 +275,11 @@ pub fn decrypt(
     let wrap_nonce = decode_nonce(&envelope.wrapped_dek_nonce_b64)?;
     let wrapped_dek = B64.decode(&envelope.wrapped_dek_b64)?;
     let wrapping_cipher = XChaCha20Poly1305::new(Key::from_slice(&master_key.bytes));
+    let wrap_aad = binding.wrap_aad(master_key.version);
     let dek_plain = wrapping_cipher
         .decrypt(
             XNonce::from_slice(&wrap_nonce),
-            Payload { msg: &wrapped_dek, aad: &binding.wrap_aad(master_key.version) },
+            Payload { msg: &wrapped_dek, aad: &wrap_aad },
         )
         .map_err(|_| VaultError::Crypto)?;
     let dek = Zeroizing::new(dek_plain);
@@ -194,10 +290,11 @@ pub fn decrypt(
     let payload_nonce = decode_nonce(&envelope.payload_nonce_b64)?;
     let ciphertext = B64.decode(&envelope.ciphertext_b64)?;
     let payload_cipher = XChaCha20Poly1305::new(Key::from_slice(dek.as_slice()));
+    let payload_aad = binding.payload_aad();
     let plaintext = payload_cipher
         .decrypt(
             XNonce::from_slice(&payload_nonce),
-            Payload { msg: &ciphertext, aad: &binding.payload_aad() },
+            Payload { msg: &ciphertext, aad: &payload_aad },
         )
         .map_err(|_| VaultError::Crypto)?;
     Ok(Zeroizing::new(plaintext))
@@ -220,11 +317,12 @@ pub fn rewrap(
     let old_wrap_nonce = decode_nonce(&envelope.wrapped_dek_nonce_b64)?;
     let wrapped_dek = B64.decode(&envelope.wrapped_dek_b64)?;
     let old_cipher = XChaCha20Poly1305::new(Key::from_slice(&old_master_key.bytes));
+    let old_aad = binding.wrap_aad(old_master_key.version);
     let dek = Zeroizing::new(
         old_cipher
             .decrypt(
                 XNonce::from_slice(&old_wrap_nonce),
-                Payload { msg: &wrapped_dek, aad: &binding.wrap_aad(old_master_key.version) },
+                Payload { msg: &wrapped_dek, aad: &old_aad },
             )
             .map_err(|_| VaultError::Crypto)?,
     );
@@ -235,10 +333,11 @@ pub fn rewrap(
     let mut new_wrap_nonce = [0_u8; NONCE_BYTES];
     getrandom::fill(&mut new_wrap_nonce).map_err(|error| VaultError::Entropy(error.to_string()))?;
     let new_cipher = XChaCha20Poly1305::new(Key::from_slice(&new_master_key.bytes));
+    let new_aad = binding.wrap_aad(new_master_key.version);
     let new_wrapped_dek = new_cipher
         .encrypt(
             XNonce::from_slice(&new_wrap_nonce),
-            Payload { msg: dek.as_slice(), aad: &binding.wrap_aad(new_master_key.version) },
+            Payload { msg: dek.as_slice(), aad: &new_aad },
         )
         .map_err(|_| VaultError::Crypto)?;
 
@@ -281,11 +380,43 @@ mod tests {
     }
 
     #[test]
+    fn key_ring_decrypts_old_versions_and_rewraps_to_active() {
+        let binding = binding();
+        let old = MasterKey::new([7; 32], 1);
+        let old_envelope = encrypt(&old, &binding, b"rotatable").unwrap();
+        let ring = KeyRing::new(2, [old, MasterKey::new([9; 32], 2)]).unwrap();
+
+        assert_eq!(ring.decrypt(&binding, &old_envelope).unwrap().as_slice(), b"rotatable");
+        let rotated = ring.rewrap_to_active(&binding, &old_envelope).unwrap();
+        assert_eq!(rotated.key_version, 2);
+        assert_eq!(rotated.ciphertext_b64, old_envelope.ciphertext_b64);
+        assert_eq!(ring.decrypt(&binding, &rotated).unwrap().as_slice(), b"rotatable");
+    }
+
+    #[test]
+    fn encoded_key_ring_requires_active_version() {
+        let one = B64.encode([1_u8; 32]);
+        let two = B64.encode([2_u8; 32]);
+        let ring = KeyRing::from_encoded(2, &format!("1/{one},2/{two}")).unwrap();
+        assert_eq!(ring.active_version(), 2);
+        assert!(matches!(KeyRing::from_encoded(3, &format!("1/{one}")), Err(VaultError::ActiveKeyMissing(3))));
+    }
+
+    #[test]
     fn binding_prevents_cross_identity_decryption() {
         let key = MasterKey::new([7; 32], 1);
         let binding = binding();
         let envelope = encrypt(&key, &binding, b"secret").unwrap();
         let wrong = VaultBinding::new(binding.tenant_id, Uuid::now_v7(), binding.item_id, binding.purpose.clone());
+        assert!(matches!(decrypt(&key, &wrong, &envelope), Err(VaultError::Crypto)));
+    }
+
+    #[test]
+    fn purpose_is_authenticated() {
+        let key = MasterKey::new([7; 32], 1);
+        let binding = binding();
+        let envelope = encrypt(&key, &binding, b"secret").unwrap();
+        let wrong = VaultBinding::new(binding.tenant_id, binding.identity_id, binding.item_id, "different-purpose");
         assert!(matches!(decrypt(&key, &wrong, &envelope), Err(VaultError::Crypto)));
     }
 
