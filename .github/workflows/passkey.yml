@@ -1,0 +1,58 @@
+name: passkey
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  passkey-state:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: authlink
+          POSTGRES_PASSWORD: authlink_dev_only
+          POSTGRES_DB: authlink
+        ports: ["54329:5432"]
+        options: >-
+          --health-cmd "pg_isready -U authlink -d authlink"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: authlink_dev_only
+      DATABASE_URL: postgres://authlink:authlink_dev_only@127.0.0.1:54329/authlink
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.88.0
+      - uses: Swatinem/rust-cache@v2
+      - run: for file in migrations/*.sql; do psql -h 127.0.0.1 -p 54329 -U authlink -d authlink -v ON_ERROR_STOP=1 -f "$file"; done
+      - run: cargo test -p authlink-passkey-service --test postgres
+
+  webauthn-adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run check -w @authlink/webauthn-verifier
+      - name: Start stateless verifier
+        run: |
+          node services/webauthn-verifier/index.mjs >/tmp/webauthn-verifier.log 2>&1 &
+          echo $! >/tmp/webauthn-verifier.pid
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8791/health >/tmp/verifier-health.json; then break; fi
+            sleep 1
+          done
+          grep -q 'authlink-webauthn-verifier' /tmp/verifier-health.json
+          grep -q '"stateful":false' /tmp/verifier-health.json
+          kill "$(cat /tmp/webauthn-verifier.pid)"
+      - name: Dump adapter log on failure
+        if: failure()
+        run: test ! -f /tmp/webauthn-verifier.log || cat /tmp/webauthn-verifier.log
