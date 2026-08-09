@@ -10,14 +10,11 @@ authlink-guardian = { path = "../../crates/authlink-guardian" }
 authlink-idp = { path = "../../crates/authlink-idp" }
 authlink-policy = { path = "../../crates/authlink-policy" }
 authlink-store = { path = "../../crates/authlink-store" }
-authlink-vault = { path = "../../crates/authlink-vault" }
 axum = "0.8.9"
 tokio = { version = "1", features = ["full"] }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
-zeroize = "1"
