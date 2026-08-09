@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { authApi, type OnboardingProgress, type OnboardingStepId } from './auth-api';
 import './auth.css';
 
@@ -73,7 +73,6 @@ export function AuthFlow({ onComplete }: { onComplete:()=>void }) {
   }
 
   function evidenceFor(id:OnboardingStepId) {
-    if(id==='account') return email ? `account:${email}` : undefined;
     if(id==='consent') return `consent:${Object.entries(consent).filter(([,v])=>v).map(([k])=>k).join(',')}`;
     return undefined;
   }
@@ -110,7 +109,7 @@ export function AuthFlow({ onComplete }: { onComplete:()=>void }) {
           {error&&<div className="auth-error">{error}</div>}
           <div className="auth-actions">
             {canSkip && <button className="auth-secondary" disabled={busy} onClick={()=>advance(true)}>Agora não</button>}
-            <button className="auth-primary" disabled={busy || (step.id==='account'&&!email)} onClick={()=>isLast?finish():advance(false)}>
+            <button className="auth-primary" disabled={busy || (step.id==='account'&&!email)} onClick={()=>advance(false)}>
               {busy?'Processando…':isLast?'Entrar no AuthLink':'Continuar'} <span>→</span>
             </button>
           </div>
